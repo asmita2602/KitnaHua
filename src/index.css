@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  font-family: 'Nunito', sans-serif;
+  background-color: #cbd5e1;
+  color: #0f172a;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+#root {
+  width: 100%;
+  max-width: 414px;
+  min-height: 100vh;
+  background: #f8fafc;
+  position: relative;
+}
