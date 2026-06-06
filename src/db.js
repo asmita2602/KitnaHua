@@ -3,7 +3,7 @@ import dexieCloud from 'dexie-cloud-addon'
 
 export const db = new Dexie('KitnaHua', { addons: [dexieCloud] })
 
-db.version(2).stores({
+db.version(3).stores({
   days: '@date, dayType',
   tasks: '@id, date, title, tag, priority, points, completed, feedbackDone, dayTypeTemplate',
   feedback: '@date',

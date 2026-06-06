@@ -102,14 +102,21 @@ export default function HomeScreen({ onPointsUpdate }) {
     await db.days.put({ date: currentDate, dayType: type })
   }
 
-  async function handleAddTask() {
-    if (!newTask.title.trim()) return
-    await db.tasks.add({ ...newTask, points: Number(newTask.points), date: currentDate, completed: false, feedbackDone: false })
-    setNewTask({ title: '', description: '', startTime: '', endTime: '', priority: 'Medium', points: 20, tag: 'Study' })
-    setShowAddTask(false)
-    loadDayData()
-    onPointsUpdate?.()
-  }
+async function handleAddTask() {
+  if (!newTask.title.trim()) return
+  await db.tasks.add({ 
+    id: crypto.randomUUID(),  // ← add kiya
+    ...newTask, 
+    points: Number(newTask.points), 
+    date: currentDate, 
+    completed: false, 
+    feedbackDone: false 
+  })
+  setNewTask({ title: '', description: '', startTime: '', endTime: '', priority: 'Medium', points: 20, tag: 'Study' })
+  setShowAddTask(false)
+  loadDayData()
+  onPointsUpdate?.()
+}
 
   async function handleQuickComplete(taskId) {
     await db.tasks.update(taskId, { completed: true })
