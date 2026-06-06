@@ -23,7 +23,7 @@ db.cloud.configure({
 
 db.on('populate', () => {
   db.rewards.bulkAdd([
-    { name: 'Ice Cream 🍦', cost: 300 },
-    { name: 'Movie Night 🎬', cost: 1000 },
+    { id: crypto.randomUUID(), name: 'Ice Cream 🍦', cost: 300 },
+    { id: crypto.randomUUID(), name: 'Movie Night 🎬', cost: 1000 },
   ])
 })
