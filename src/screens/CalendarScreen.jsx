@@ -27,7 +27,7 @@ function getDefaultDayType(dateStr) {
 }
 
 export default function CalendarScreen() {
-  const today = getTodayString()
+  const today = localDateString()
   const todayDate = new Date()
   const [currentYear, setCurrentYear] = useState(todayDate.getFullYear())
   const [currentMonth, setCurrentMonth] = useState(todayDate.getMonth())

@@ -38,19 +38,26 @@ export default function App() {
     return () => stopSync()
   }
 
-  async function refreshPoints() {
-    const allTasks = await db.tasks.toArray()
-    const pts = allTasks
-      .filter(t => t.completed && t.date !== 'template')
-      .reduce((sum, t) => sum + (t.points || 0), 0)
-    let redPts = 0
-    try {
-      const reds = await db.redemptions?.toArray?.() || []
-      redPts = reds.reduce((s, r) => s + (r.cost || 0), 0)
-    } catch {}
-    setTotalPoints(Math.max(0, pts - redPts))
-  }
+async function refreshPoints() {
+  const allTasks = await db.tasks.toArray()
+  const pts = allTasks
+    .filter(t => t.completed && t.date !== 'template')
+    .reduce((sum, t) => sum + (t.points || 0), 0)
 
+  let bonusPts = 0
+  try {
+    const allFeedback = await db.feedback?.toArray?.() || []
+    bonusPts = allFeedback.reduce((sum, f) => sum + (f.bonusPoints || 0), 0)
+  } catch {}
+
+  let redPts = 0
+  try {
+    const reds = await db.redemptions?.toArray?.() || []
+    redPts = reds.reduce((s, r) => s + (r.cost || 0), 0)
+  } catch {}
+
+  setTotalPoints(Math.max(0, pts + bonusPts - redPts))
+}
   async function handleDataChange(table, record) {
     refreshPoints()
     try {

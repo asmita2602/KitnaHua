@@ -125,17 +125,13 @@ function Chips({ options, value, onChange, multi = false }) {
 }
 
 export default function FeedbackScreen({ onSave }) {
-  const today = localDateString()   // ✅ IST-safe
+  const today = localDateString()
   const [open, setOpen] = useState('Study')
-
-  // Dynamic subjects from DB
   const [subjectOptions, setSubjectOptions] = useState([])
-
   const [study, setStudy] = useState({ plannedHours: '', actualHours: '', subjects: [], blockers: '', satisfaction: 0 })
   const [office, setOffice] = useState({ actualHours: '', workTypes: [], meetingsCount: '', blockers: '', satisfaction: 0 })
   const [exercise, setExercise] = useState({ plannedDuration: '', actualDuration: '', exerciseType: '', feel: '', satisfaction: 0 })
   const [reflection, setReflection] = useState({ overallSatisfaction: 0, biggestAchievement: '', biggestChallenge: '' })
-
   const [studyDone, setStudyDone] = useState(false)
   const [officeDone, setOfficeDone] = useState(false)
   const [exerciseDone, setExerciseDone] = useState(false)
@@ -144,16 +140,13 @@ export default function FeedbackScreen({ onSave }) {
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    // ── Load dynamic subjects from SubjectsScreen ──────────────────
     try {
       const subs = await db.subjects.toArray()
       setSubjectOptions(subs.map(s => s.name))
     } catch {
-      // fallback hardcoded list if subjects table empty
       setSubjectOptions(['Quant', 'Reasoning', 'DSA', 'DBMS', 'OIC', 'AWS'])
     }
 
-    // ── Load saved feedback for today ──────────────────────────────
     try {
       const rec = await db.feedback?.get?.(today)
       if (rec) {
@@ -164,7 +157,6 @@ export default function FeedbackScreen({ onSave }) {
       }
     } catch {}
 
-    // ── Pre-fill planned hours from today's template ───────────────
     try {
       const dayRec = await db.days.get(today)
       const dayType = dayRec?.dayType || 'Normal Day'
@@ -192,26 +184,18 @@ export default function FeedbackScreen({ onSave }) {
     } catch {}
   }
 
-  // ── KEY: sync studied subjects → db.lectures lastStudied ─────────
   async function syncSubjectsToLectures(studiedSubjectNames) {
     if (!studiedSubjectNames?.length) return
     try {
       const now = new Date().toISOString()
-      // Get all subjects from DB
       const allSubjects = await db.subjects.toArray()
       for (const subName of studiedSubjectNames) {
         const subRecord = allSubjects.find(s => s.name === subName)
         if (!subRecord) continue
-        // Get all topics for this subject
         const topics = await db.topics.where('subjectId').equals(subRecord.id).toArray()
         for (const topic of topics) {
-          // Get all lectures not yet watched for this topic
           const lectures = await db.lectures.where('topicId').equals(topic.id).toArray()
-          // Find the first unwatched lecture and mark lastStudied
-          // (we don't auto-mark watched — user does that manually in SubjectsScreen)
-          // But we DO update lastStudied so "last studied" date stays current
           for (const lec of lectures) {
-            // Only update lastStudied if not already set today
             const alreadyToday = lec.lastStudied && lec.lastStudied.startsWith(today)
             if (!alreadyToday) {
               await db.lectures.update(lec.id, { lastStudied: now })
@@ -224,6 +208,40 @@ export default function FeedbackScreen({ onSave }) {
     }
   }
 
+  async function calculateBonusPoints(feedbackRecord) {
+    let bonus = 0
+
+    // Study streak bonus — every 7 days = +20 pts
+    try {
+      const allFeedback = await db.feedback.toArray()
+      let streak = 0
+      for (let i = 0; ; i++) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        const ds = localDateString(d)
+        const rec = ds === today ? feedbackRecord : allFeedback.find(f => f.date === ds)
+        if (!rec || !rec.study?.actualHours || parseFloat(rec.study.actualHours) <= 0) break
+        streak++
+      }
+      bonus += Math.floor(streak / 7) * 20
+    } catch {}
+
+    // Extra study hour bonus — actual > planned + 1hr → +1/3 of task points
+    try {
+      const planned = parseFloat(feedbackRecord.study?.plannedHours) || 0
+      const actual  = parseFloat(feedbackRecord.study?.actualHours)  || 0
+      if (actual - planned > 1) {
+        const todayTasks = await db.tasks.where('date').equals(today).toArray()
+        const taskPoints = todayTasks
+          .filter(t => t.completed)
+          .reduce((sum, t) => sum + (t.points || 0), 0)
+        bonus += Math.round(taskPoints / 3)
+      }
+    } catch {}
+
+    return bonus
+  }
+
   async function saveSection(section) {
     let existing = {}
     try { existing = (await db.feedback?.get?.(today)) || {} } catch {}
@@ -232,12 +250,15 @@ export default function FeedbackScreen({ onSave }) {
     if (section === 'Study') {
       updated.study = study
       setStudyDone(true)
-      // ✅ Auto-sync to SubjectsScreen lectures
       await syncSubjectsToLectures(study.subjects)
     }
-    if (section === 'Office')     { updated.office = office;         setOfficeDone(true) }
-    if (section === 'Exercise')   { updated.exercise = exercise;     setExerciseDone(true) }
-    if (section === 'Reflection') { updated.reflection = reflection; setReflectionDone(true) }
+    if (section === 'Office')   { updated.office = office;     setOfficeDone(true) }
+    if (section === 'Exercise') { updated.exercise = exercise; setExerciseDone(true) }
+    if (section === 'Reflection') {
+      updated.reflection = reflection
+      setReflectionDone(true)
+      updated.bonusPoints = await calculateBonusPoints(updated)
+    }
 
     try { await db.feedback?.put?.(updated) } catch {}
     setOpen(null)
@@ -250,13 +271,11 @@ export default function FeedbackScreen({ onSave }) {
   return (
     <div style={{ padding: '16px', paddingBottom: '32px', fontFamily: 'Nunito, sans-serif' }}>
 
-      {/* Header */}
       <div style={{ marginBottom: '20px' }}>
         <p style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>Daily Feedback</p>
         <p style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a' }}>{formatDate(today)}</p>
       </div>
 
-      {/* All done banner */}
       {allDone && (
         <div style={{
           background: '#f0fdf4', border: '2px solid #4ade80',
@@ -266,23 +285,17 @@ export default function FeedbackScreen({ onSave }) {
           <CheckCircle size={22} color='#22c55e' />
           <div>
             <p style={{ fontSize: '14px', fontWeight: '800', color: '#14532d' }}>All feedback submitted!</p>
-            <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '2px' }}>
-              Head to Insights for your AI analysis.
-            </p>
+            <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '2px' }}>Head to Insights for your AI analysis.</p>
           </div>
         </div>
       )}
 
-      {/* ── STUDY ── */}
       <Section title="Study Feedback" icon="📚" colorKey="Study"
         isOpen={open === 'Study'} onToggle={() => toggle('Study')} isDone={studyDone}>
-
         <Label>Planned Hours</Label>
         <TextInput value={study.plannedHours} onChange={v => setStudy({ ...study, plannedHours: v })} placeholder="e.g. 4" type="number" />
-
         <Label>Actual Hours</Label>
         <TextInput value={study.actualHours} onChange={v => setStudy({ ...study, actualHours: v })} placeholder="e.g. 2.5" type="number" />
-
         <Label>Subjects Studied</Label>
         {subjectOptions.length === 0 ? (
           <p style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', marginTop: '4px' }}>
@@ -292,82 +305,59 @@ export default function FeedbackScreen({ onSave }) {
           <Chips options={subjectOptions} value={study.subjects}
             onChange={v => setStudy({ ...study, subjects: v })} multi />
         )}
-
         <Label>Major Blockers</Label>
         <TextInput value={study.blockers} onChange={v => setStudy({ ...study, blockers: v })} placeholder="e.g. Unexpected office calls" />
-
         <Label>Satisfaction (1–10)</Label>
         <SatisfactionRow value={study.satisfaction} onChange={v => setStudy({ ...study, satisfaction: v })} color='#3b82f6' />
-
         <button onClick={() => saveSection('Study')} style={saveBtn}>Save Study Feedback</button>
       </Section>
 
-      {/* ── OFFICE ── */}
       <Section title="Office Feedback" icon="💼" colorKey="Office"
         isOpen={open === 'Office'} onToggle={() => toggle('Office')} isDone={officeDone}>
-
         <Label>Actual Office Hours</Label>
         <TextInput value={office.actualHours} onChange={v => setOffice({ ...office, actualHours: v })} placeholder="e.g. 8" type="number" />
-
         <Label>Work Type</Label>
-        <Chips options={WORK_TYPES} value={office.workTypes}
-          onChange={v => setOffice({ ...office, workTypes: v })} multi />
-
+        <Chips options={WORK_TYPES} value={office.workTypes} onChange={v => setOffice({ ...office, workTypes: v })} multi />
         <Label>Number of Meetings</Label>
         <TextInput value={office.meetingsCount} onChange={v => setOffice({ ...office, meetingsCount: v })} placeholder="e.g. 4" type="number" />
-
         <Label>Major Blockers</Label>
         <TextInput value={office.blockers} onChange={v => setOffice({ ...office, blockers: v })} placeholder="e.g. Production issue escalation" />
-
         <Label>Satisfaction (1–10)</Label>
         <SatisfactionRow value={office.satisfaction} onChange={v => setOffice({ ...office, satisfaction: v })} color='#6366f1' />
-
         <button onClick={() => saveSection('Office')} style={saveBtn}>Save Office Feedback</button>
       </Section>
 
-      {/* ── EXERCISE ── */}
       <Section title="Exercise Feedback" icon="🏃" colorKey="Exercise"
         isOpen={open === 'Exercise'} onToggle={() => toggle('Exercise')} isDone={exerciseDone}>
-
         <Label>Planned Duration (hrs)</Label>
         <TextInput value={exercise.plannedDuration} onChange={v => setExercise({ ...exercise, plannedDuration: v })} placeholder="e.g. 1" type="number" />
-
         <Label>Actual Duration (hrs)</Label>
         <TextInput value={exercise.actualDuration} onChange={v => setExercise({ ...exercise, actualDuration: v })} placeholder="e.g. 0.5" type="number" />
-
         <Label>Exercise Type</Label>
         <TextInput value={exercise.exerciseType} onChange={v => setExercise({ ...exercise, exerciseType: v })} placeholder="e.g. Running, Yoga, Gym" />
-
         <Label>How Did You Feel?</Label>
         <Chips options={FEEL_OPTIONS} value={exercise.feel} onChange={v => setExercise({ ...exercise, feel: v })} />
-
         <Label>Satisfaction (1–10)</Label>
         <SatisfactionRow value={exercise.satisfaction} onChange={v => setExercise({ ...exercise, satisfaction: v })} color='#22c55e' />
-
         <button onClick={() => saveSection('Exercise')} style={saveBtn}>Save Exercise Feedback</button>
       </Section>
 
-      {/* ── REFLECTION ── */}
       <Section title="End of Day Reflection" icon="🌙" colorKey="Reflection"
         isOpen={open === 'Reflection'} onToggle={() => toggle('Reflection')} isDone={reflectionDone}>
-
         <Label>Overall Satisfaction (1–10)</Label>
         <SatisfactionRow value={reflection.overallSatisfaction} onChange={v => setReflection({ ...reflection, overallSatisfaction: v })} color='#eab308' />
-
         <Label>Biggest Achievement</Label>
         <textarea value={reflection.biggestAchievement}
           onChange={e => setReflection({ ...reflection, biggestAchievement: e.target.value })}
           placeholder="What went well today?" rows={2}
           style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', resize: 'none', background: '#f8fafc', boxSizing: 'border-box' }}
         />
-
         <Label>Biggest Challenge</Label>
         <textarea value={reflection.biggestChallenge}
           onChange={e => setReflection({ ...reflection, biggestChallenge: e.target.value })}
           placeholder="What was hard today?" rows={2}
           style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', resize: 'none', background: '#f8fafc', boxSizing: 'border-box' }}
         />
-
         <button onClick={() => saveSection('Reflection')} style={saveBtn}>Save Reflection</button>
       </Section>
 
