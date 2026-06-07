@@ -26,7 +26,7 @@ function getDefaultDayType(dateStr) {
   return day === 0 || day === 6 ? 'Weekend Day' : 'Normal Day'
 }
 
-export default function CalendarScreen() {
+export default function CalendarScreen({ onSave }) {
   const today = localDateString()
   const todayDate = new Date()
   const [currentYear, setCurrentYear] = useState(todayDate.getFullYear())
@@ -71,11 +71,12 @@ export default function CalendarScreen() {
     else setCurrentMonth(m => m + 1)
   }
 
-  async function handleDayTypeChange(type) {
-    await db.days.put({ date: selectedDate, dayType: type })
-    setDayTypes(prev => ({ ...prev, [selectedDate]: type }))
-    setShowPopup(false)
-  }
+async function handleDayTypeChange(type) {
+  await db.days.put({ date: selectedDate, dayType: type })
+  setDayTypes(prev => ({ ...prev, [selectedDate]: type }))
+  setShowPopup(false)
+  onSave?.('days', { date: selectedDate, dayType: type }) // ADD THIS
+}
 
   function handleDateClick(dateStr) {
     setSelectedDate(dateStr)

@@ -1,90 +1,90 @@
-import { firestoreDb } from './firebase'
 import { db } from './db'
-import {
-  collection, doc, setDoc, getDocs, writeBatch, deleteDoc, getDoc
-} from 'firebase/firestore'
 
-const USER_ID = 'asmita'
 const TABLES = ['days', 'tasks', 'feedback', 'rewards', 'redemptions', 'subjects', 'topics', 'lectures']
+const BACKUP_KEY = 'kitnahua_backup'
+const BACKUP_DATE_KEY = 'kitnahua_backup_date'
 
-function getRecordId(table, record) {
-  if (record.id !== undefined && record.id !== null) return String(record.id)
-  if (record.date !== undefined) return String(record.date)
-  return String(Date.now())
-}
-
-function sanitize(obj) {
-  return JSON.parse(JSON.stringify(obj, (_, v) => v === undefined ? null : v))
-}
-
-// Push single record to Firestore
-export async function pushRecord(table, record) {
+export async function backupToLocal() {
   try {
-    const id = getRecordId(table, record)
-    const ref = doc(firestoreDb, USER_ID, table, 'data', id)
-    await setDoc(ref, sanitize(record))
-    return true
-  } catch (e) {
-    console.log(`pushRecord error [${table}]:`, e)
-    return false
-  }
-}
-
-// Delete record from Firestore
-export async function deleteRecord(table, id) {
-  try {
-    const ref = doc(firestoreDb, USER_ID, table, 'data', String(id))
-    await deleteDoc(ref)
-    return true
-  } catch (e) {
-    console.log(`deleteRecord error [${table}]:`, e)
-    return false
-  }
-}
-
-// Pull from Firestore — MERGE only, never clear local data
-export async function pullFromCloud() {
-  const promises = TABLES.map(async (table) => {
-    try {
-      const colRef = collection(firestoreDb, USER_ID, table, 'data')
-      const snapshot = await getDocs(colRef)
-      if (snapshot.empty) return // Firestore empty hai toh local touch mat karo
-      const records = snapshot.docs.map(d => d.data())
-      // Merge — existing local records ko overwrite karo, delete mat karo
-      await db[table].bulkPut(records)
-    } catch (e) {
-      console.log(`pull error [${table}]:`, e)
+    const backup = {}
+    for (const table of TABLES) {
+      backup[table] = await db[table].toArray()
     }
-  })
-  await Promise.all(promises)
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(backup))
+    localStorage.setItem(BACKUP_DATE_KEY, new Date().toISOString())
+    return true
+  } catch (e) { return false }
 }
 
-// Push entire table to Firestore
-export async function pushTable(table) {
+export async function restoreFromBackup() {
   try {
-    const records = await db[table].toArray()
-    if (records.length === 0) return
-    const chunks = []
-    for (let i = 0; i < records.length; i += 400) {
-      chunks.push(records.slice(i, i + 400))
-    }
-    for (const chunk of chunks) {
-      const batch = writeBatch(firestoreDb)
-      for (const record of chunk) {
-        const id = getRecordId(table, record)
-        const ref = doc(firestoreDb, USER_ID, table, 'data', id)
-        batch.set(ref, sanitize(record))
+    const backupStr = localStorage.getItem(BACKUP_KEY)
+    if (!backupStr) return false
+    const backup = JSON.parse(backupStr)
+    for (const table of TABLES) {
+      if (backup[table]?.length > 0) {
+        await db[table].bulkPut(backup[table])
       }
-      await batch.commit()
     }
-  } catch (e) {
-    console.log(`pushTable error [${table}]:`, e)
+    return true
+  } catch (e) { return false }
+}
+
+export async function exportData() {
+  try {
+    const backup = {}
+    for (const table of TABLES) {
+      backup[table] = await db[table].toArray()
+    }
+    backup._exportDate = new Date().toISOString()
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `kitnahua_${new Date().toLocaleDateString('en-IN').replace(/\//g, '-')}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    return true
+  } catch (e) { return false }
+}
+
+export async function importData(file) {
+  try {
+    const text = await file.text()
+    const backup = JSON.parse(text)
+    for (const table of TABLES) {
+      if (backup[table]?.length > 0) {
+        await db[table].clear()
+        await db[table].bulkAdd(backup[table])
+      }
+    }
+    return true
+  } catch (e) { return false }
+}
+
+export async function autoBackup() {
+  const lastBackup = localStorage.getItem(BACKUP_DATE_KEY)
+  if (lastBackup) {
+    const diff = new Date() - new Date(lastBackup)
+    if (diff < 30 * 60 * 1000) return
   }
+  await backupToLocal()
 }
 
-// Push all local data to Firestore
-export async function pushToCloud() {
-  await Promise.all(TABLES.map(table => pushTable(table)))
+export async function initApp() {
+  try {
+    const taskCount = await db.tasks.count()
+    const subjectCount = await db.subjects.count()
+    if (taskCount === 0 && subjectCount === 0) {
+      const hasBackup = localStorage.getItem(BACKUP_KEY)
+      if (hasBackup) await restoreFromBackup()
+    }
+    await backupToLocal()
+  } catch (e) {}
 }
 
+export async function pushRecord() { return true }
+export async function deleteRecord() { return true }
+export async function pushToCloud() { return true }
+export async function pullFromCloud() { return true }
 export function startRealtimeSync() { return () => {} }

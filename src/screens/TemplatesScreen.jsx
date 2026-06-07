@@ -32,7 +32,7 @@ function formatDuration(start, end) {
   return mins < 60 ? `${mins} min` : `${Math.round((mins / 60) * 10) / 10} h`
 }
 
-export default function TemplatesScreen() {
+export default function TemplatesScreen({ onSave }) {
   const [activeTab, setActiveTab] = useState('Normal Day')
   const [templates, setTemplates] = useState({})
   const [showAddBlock, setShowAddBlock] = useState(false)
@@ -66,30 +66,29 @@ export default function TemplatesScreen() {
     setTopicsList(topics)
   }
 
-  async function handleAddBlock() {
-    if (!newBlock.title.trim()) return
-    await db.tasks.add({
-      ...newBlock,
-      points: Number(newBlock.points),
-      date: 'template',
-      dayTypeTemplate: activeTab,
-      completed: false,
-      feedbackDone: false,
-    })
-    setNewBlock({
-      title: '', description: '', startTime: '', endTime: '',
-      tag: 'Study', priority: 'Medium', points: 20,
-      subjectId: null, subjectName: '', topicId: null, topicName: '',
-    })
-    setTopicsList([])
-    setShowAddBlock(false)
-    loadTemplates()
+async function handleAddBlock() {
+  if (!newBlock.title.trim()) return
+  const blockData = {
+    ...newBlock,
+    points: Number(newBlock.points),
+    date: 'template',
+    dayTypeTemplate: activeTab,
+    completed: false,
+    feedbackDone: false,
   }
+  const id = await db.tasks.add(blockData)  // id capture karo
+  setNewBlock({ title: '', description: '', startTime: '', endTime: '', tag: 'Study', priority: 'Medium', points: 20, subjectId: null, subjectName: '', topicId: null, topicName: '' })
+  setTopicsList([])
+  setShowAddBlock(false)
+  loadTemplates()
+  onSave?.('tasks', { ...blockData, id })  // ADD THIS
+}
 
   async function handleDeleteBlock(id) {
-    await db.tasks.delete(id)
-    loadTemplates()
-  }
+  await db.tasks.delete(id)
+  loadTemplates()
+  onSave?.('_delete_tasks', { id })  // ADD THIS
+}
 
   const colors = DAY_TYPE_COLORS[activeTab]
   const currentBlocks = templates[activeTab] || []

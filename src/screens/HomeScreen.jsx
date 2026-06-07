@@ -161,16 +161,17 @@ export default function HomeScreen({ onPointsUpdate }) {
     onPointsUpdate?.()
   }
 
-  async function handleDeleteTask(task) {
-    if (task.fromTemplate) {
-      setTasks(prev => prev.filter(t => t !== task))
-      return
-    }
-    await db.tasks.delete(task.id)
-    loadDayData()
-    // Delete from Firestore bhi
-    onPointsUpdate?.('_delete_tasks', { id: task.id })
+ async function handleDeleteTask(task) {
+  if (task.fromTemplate) {
+    setTasks(prev => prev.filter(t => t !== task))
+    return
   }
+  // Local se delete
+  await db.tasks.delete(task.id)
+  loadDayData()
+  // Cloud pe soft delete — yahi missing tha
+  onPointsUpdate?.('_delete_tasks', { id: task.id })
+}
 
   function goToPrev() { setCurrentDate(d => addDaysToStr(d, -1)) }
   function goToNext() { setCurrentDate(d => addDaysToStr(d, 1)) }

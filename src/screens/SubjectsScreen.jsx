@@ -20,7 +20,7 @@ function ProgressBar({ value, height = 8 }) {
 }
 
 // ─── Main Subjects List ──────────────────────────────────────────────────────
-export default function SubjectsScreen() {
+export default function SubjectsScreen({ onSave }) {
   const [subjects, setSubjects] = useState([])
   const [showAddSubject, setShowAddSubject] = useState(false)
   const [newSubject, setNewSubject] = useState({ name: '', description: '' })
@@ -60,26 +60,31 @@ export default function SubjectsScreen() {
   }
 
   async function handleAddSubject() {
-    if (!newSubject.name.trim()) return
-    await db.subjects.add({ name: newSubject.name.trim(), description: newSubject.description.trim() })
-    setNewSubject({ name: '', description: '' })
-    setShowAddSubject(false)
-    loadSubjects()
-  }
+  if (!newSubject.name.trim()) return
+  const id = await db.subjects.add({ name: newSubject.name.trim(), description: newSubject.description.trim() })
+  setNewSubject({ name: '', description: '' })
+  setShowAddSubject(false)
+  loadSubjects()
+  onSave?.('subjects', { id, name: newSubject.name.trim(), description: newSubject.description.trim() }) // ADD THIS
+}
 
-  async function handleDeleteSubject(id, e) {
-    e.stopPropagation()
-    if (!window.confirm('Delete this subject and all its topics/lectures?')) return
-    const topics = await db.topics.where('subjectId').equals(id).toArray()
-    for (const t of topics) await db.lectures.where('topicId').equals(t.id).delete()
-    await db.topics.where('subjectId').equals(id).delete()
-    await db.subjects.delete(id)
-    loadSubjects()
-  }
+async function handleDeleteSubject(id, e) {
+  e.stopPropagation()
+  if (!window.confirm('Delete this subject and all its topics/lectures?')) return
+  const topics = await db.topics.where('subjectId').equals(id).toArray()
+  for (const t of topics) await db.lectures.where('topicId').equals(t.id).delete()
+  await db.topics.where('subjectId').equals(id).delete()
+  await db.subjects.delete(id)
+  loadSubjects()
+  // ADD THESE 3 LINES
+  onSave?.('_push_table', 'subjects')
+  onSave?.('_push_table', 'topics')
+  onSave?.('_push_table', 'lectures')
+}
 
   if (selectedSubject) {
-    return <SubjectDetailScreen subject={selectedSubject} onBack={() => { setSelectedSubject(null); loadSubjects() }} />
-  }
+  return <SubjectDetailScreen subject={selectedSubject} onBack={() => { setSelectedSubject(null); loadSubjects() }} onSave={onSave} />
+}
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'Nunito, sans-serif' }}>
@@ -197,7 +202,7 @@ export default function SubjectsScreen() {
 }
 
 // ─── Subject Detail (Topics) ─────────────────────────────────────────────────
-function SubjectDetailScreen({ subject, onBack }) {
+function SubjectDetailScreen({ subject, onBack, onSave }) {
   const [topics, setTopics] = useState([])
   const [showAddTopic, setShowAddTopic] = useState(false)
   const [newTopic, setNewTopic] = useState({ name: '', totalLectures: '' })
@@ -220,27 +225,32 @@ function SubjectDetailScreen({ subject, onBack }) {
   }
 
   async function handleAddTopic() {
-    if (!newTopic.name.trim() || !newTopic.totalLectures) return
-    const topicId = await db.topics.add({ subjectId: subject.id, name: newTopic.name.trim(), totalLectures: Number(newTopic.totalLectures) })
-    const entries = []
-    for (let i = 1; i <= Number(newTopic.totalLectures); i++) {
-      entries.push({ topicId, subjectId: subject.id, name: `Lecture ${i}`, watched: false, notesMade: false, questionsSolved: false, revisionDone: false, lastStudied: null })
-    }
-    await db.lectures.bulkAdd(entries)
-    setNewTopic({ name: '', totalLectures: '' })
-    setShowAddTopic(false)
-    loadTopics()
+  if (!newTopic.name.trim() || !newTopic.totalLectures) return
+  const topicId = await db.topics.add({ subjectId: subject.id, name: newTopic.name.trim(), totalLectures: Number(newTopic.totalLectures) })
+  const entries = []
+  for (let i = 1; i <= Number(newTopic.totalLectures); i++) {
+    entries.push({ topicId, subjectId: subject.id, name: `Lecture ${i}`, watched: false, notesMade: false, questionsSolved: false, revisionDone: false, lastStudied: null })
   }
+  await db.lectures.bulkAdd(entries)
+  setNewTopic({ name: '', totalLectures: '' })
+  setShowAddTopic(false)
+  loadTopics()
+  // ADD THESE 2 LINES
+  onSave?.('topics', { id: topicId, subjectId: subject.id, name: newTopic.name.trim(), totalLectures: Number(newTopic.totalLectures) })
+  onSave?.('_push_table', 'lectures')
+}
 
-  async function handleDeleteTopic(id, e) {
-    e.stopPropagation()
-    await db.lectures.where('topicId').equals(id).delete()
-    await db.topics.delete(id)
-    loadTopics()
-  }
+async function handleDeleteTopic(id, e) {
+  e.stopPropagation()
+  await db.lectures.where('topicId').equals(id).delete()
+  await db.topics.delete(id)
+  loadTopics()
+  // ADD THESE 2 LINES
+  onSave?.('_push_table', 'topics')
+  onSave?.('_push_table', 'lectures')
+}
 
-  if (selectedTopic) return <TopicDetailScreen topic={selectedTopic} onBack={() => { setSelectedTopic(null); loadTopics() }} />
-
+ if (selectedTopic) return <TopicDetailScreen topic={selectedTopic} onBack={() => { setSelectedTopic(null); loadTopics() }} onSave={onSave} />
   const totalLectures = topics.reduce((s, t) => s + t.lecturesCount, 0)
   const doneLectures = topics.reduce((s, t) => s + t.completedCount, 0)
   const overallProgress = totalLectures > 0 ? Math.round((doneLectures / totalLectures) * 100) : 0
@@ -340,7 +350,7 @@ function SubjectDetailScreen({ subject, onBack }) {
 }
 
 // ─── Topic Detail (Lectures) ─────────────────────────────────────────────────
-function TopicDetailScreen({ topic, onBack }) {
+function TopicDetailScreen({ topic, onBack, onSave }) {
   const [lectures, setLectures] = useState([])
 
   useEffect(() => { loadLectures() }, [])
@@ -351,13 +361,14 @@ function TopicDetailScreen({ topic, onBack }) {
   }
 
   async function toggleField(lectureId, field) {
-    const lecture = lectures.find(l => l.id === lectureId)
-    if (!lecture) return
-    const updated = { [field]: !lecture[field] }
-    if (field === 'watched' && !lecture.watched) updated.lastStudied = new Date().toISOString()
-    await db.lectures.update(lectureId, updated)
-    loadLectures()
-  }
+  const lecture = lectures.find(l => l.id === lectureId)
+  if (!lecture) return
+  const updated = { [field]: !lecture[field] }
+  if (field === 'watched' && !lecture.watched) updated.lastStudied = new Date().toISOString()
+  await db.lectures.update(lectureId, updated)
+  loadLectures()
+  onSave?.('lectures', { ...lecture, ...updated }) // ADD THIS
+}
 
   const fields = [
     { key: 'watched', label: '👁 Watched', color: '#3b82f6', bg: '#dbeafe' },
