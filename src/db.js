@@ -17,5 +17,6 @@ db.version(2).stores({
 
 db.cloud.configure({
   databaseUrl: 'https://ztzyryvif.dexie.cloud',
-  requireAuth: false,
+  requireAuth: true,
+  tryUseServiceWorker: false,
 })
