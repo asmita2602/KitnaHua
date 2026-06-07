@@ -33,14 +33,17 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [])
 
-  async function initApp() {
+async function initApp() {
     setSyncing(true)
     setSyncStatus('syncing')
     try {
+      // Pehle local data push karo (data loss prevent)
+      await pushToCloud()
+      // Phir cloud se merge karo
       await pullFromCloud()
       setSyncStatus('ok')
     } catch (e) {
-      console.log('Initial pull failed:', e)
+      console.log('Sync failed:', e)
       setSyncStatus('error')
     }
     await refreshPoints()
@@ -50,6 +53,7 @@ export default function App() {
   // Background pull — UI block nahi hota
   async function silentPull() {
     try {
+      await pushToCloud()
       await pullFromCloud()
       await refreshPoints()
       setSyncStatus('ok')
