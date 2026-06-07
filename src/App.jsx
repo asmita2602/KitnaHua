@@ -11,7 +11,7 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
-import { pullFromCloud, pushToCloud, startRealtimeSync } from './sync'
+import { pullFromCloud, pushToCloud, pushRecord, startRealtimeSync } from './sync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
@@ -51,10 +51,14 @@ export default function App() {
     setTotalPoints(Math.max(0, pts - redPts))
   }
 
-  async function handleDataChange() {
+  async function handleDataChange(table, record) {
     refreshPoints()
     try {
-      await pushToCloud()
+      if (table && record) {
+        await pushRecord(table, record)
+      } else {
+        await pushToCloud()
+      }
     } catch (e) {
       console.log('Push failed:', e)
     }
