@@ -2,101 +2,129 @@ import { firestoreDb } from './firebase'
 import { db } from './db'
 import {
   collection, doc, setDoc, getDocs,
-  writeBatch, onSnapshot
+  writeBatch, onSnapshot, serverTimestamp
 } from 'firebase/firestore'
 
 const USER_ID = 'asmita'
 const TABLES = ['days', 'tasks', 'feedback', 'rewards', 'redemptions', 'subjects', 'topics', 'lectures']
 
 function getRecordId(table, record) {
-  if (record.id !== undefined) return String(record.id)
+  if (record.id !== undefined && record.id !== null) return String(record.id)
   if (record.date !== undefined) return String(record.date)
-  return String(Math.random())
+  return String(Date.now() + Math.random())
 }
 
-// Push local data to Firestore using batch writes
+function sanitize(obj) {
+  return JSON.parse(JSON.stringify(obj, (_, v) => v === undefined ? null : v))
+}
+
+// Push single record immediately
+export async function pushRecord(table, record) {
+  try {
+    const id = getRecordId(table, record)
+    const ref = doc(firestoreDb, USER_ID, table, 'data', id)
+    await setDoc(ref, sanitize(record))
+  } catch (e) {
+    console.log(`pushRecord error [${table}]:`, e)
+  }
+}
+
+// Push all local data to Firestore (full sync)
 export async function pushToCloud() {
   for (const table of TABLES) {
     try {
       const records = await db[table].toArray()
       if (records.length === 0) continue
-
-      // Firestore batch max 500 ops
       const chunks = []
       for (let i = 0; i < records.length; i += 400) {
         chunks.push(records.slice(i, i + 400))
       }
-
       for (const chunk of chunks) {
         const batch = writeBatch(firestoreDb)
         for (const record of chunk) {
           const id = getRecordId(table, record)
           const ref = doc(firestoreDb, USER_ID, table, 'data', id)
-          batch.set(ref, JSON.parse(JSON.stringify(record)))
+          batch.set(ref, sanitize(record))
         }
         await batch.commit()
       }
     } catch (e) {
-      console.log(`Push error for ${table}:`, e)
+      console.log(`pushToCloud error [${table}]:`, e)
     }
   }
 }
 
-// Push single record
-export async function pushRecord(table, record) {
-  try {
-    const id = getRecordId(table, record)
-    const ref = doc(firestoreDb, USER_ID, table, 'data', id)
-    await setDoc(ref, JSON.parse(JSON.stringify(record)))
-  } catch (e) {
-    console.log(`Push record error for ${table}:`, e)
-  }
-}
-
-// Pull Firestore data to local IndexedDB
+// Pull all Firestore data to local
 export async function pullFromCloud() {
+  let anyData = false
   for (const table of TABLES) {
     try {
       const colRef = collection(firestoreDb, USER_ID, table, 'data')
       const snapshot = await getDocs(colRef)
       if (snapshot.empty) continue
+      anyData = true
       const records = snapshot.docs.map(d => d.data())
       await db[table].clear()
       await db[table].bulkPut(records)
     } catch (e) {
-      console.log(`Pull error for ${table}:`, e)
+      console.log(`pullFromCloud error [${table}]:`, e)
     }
   }
+  return anyData
 }
 
-// Realtime listener — only syncs when cloud changes from another device
+// Realtime sync — only updates changed records, does not clear local data
 export function startRealtimeSync(onUpdate) {
   const unsubs = []
+
   for (const table of TABLES) {
     try {
       const colRef = collection(firestoreDb, USER_ID, table, 'data')
-      const unsub = onSnapshot(colRef, { includeMetadataChanges: false }, async (snapshot) => {
-        const changes = snapshot.docChanges()
-        if (changes.length === 0) return
+      let initialized = false
 
-        // Only process changes from server (not local writes)
-        const serverChanges = changes.filter(c => !c.doc.metadata.hasPendingWrites)
-        if (serverChanges.length === 0) return
-
-        for (const change of serverChanges) {
-          const data = change.doc.data()
-          if (change.type === 'removed') {
-            try { await db[table].delete(data.id || data.date) } catch {}
-          } else {
-            try { await db[table].put(data) } catch {}
+      const unsub = onSnapshot(
+        colRef,
+        { includeMetadataChanges: false },
+        async (snapshot) => {
+          // Skip first snapshot (initial load already done by pullFromCloud)
+          if (!initialized) {
+            initialized = true
+            return
           }
+
+          const changes = snapshot.docChanges()
+          if (changes.length === 0) return
+
+          // Only process server changes
+          const serverChanges = changes.filter(c => !c.doc.metadata.hasPendingWrites)
+          if (serverChanges.length === 0) return
+
+          let changed = false
+          for (const change of serverChanges) {
+            const data = change.doc.data()
+            try {
+              if (change.type === 'removed') {
+                const id = data.id !== undefined ? data.id : data.date
+                if (id !== undefined) await db[table].delete(id)
+              } else {
+                await db[table].put(data)
+                changed = true
+              }
+            } catch (e) {
+              console.log(`Realtime update error [${table}]:`, e)
+            }
+          }
+          if (changed) onUpdate?.()
+        },
+        (error) => {
+          console.log(`Snapshot error [${table}]:`, error)
         }
-        onUpdate?.()
-      })
+      )
       unsubs.push(unsub)
     } catch (e) {
-      console.log(`Realtime sync error for ${table}:`, e)
+      console.log(`startRealtimeSync error [${table}]:`, e)
     }
   }
+
   return () => unsubs.forEach(u => u())
 }

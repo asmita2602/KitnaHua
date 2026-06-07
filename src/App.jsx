@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import BottomNav from './components/BottomNav'
 import TopBar from './components/TopBar'
@@ -11,63 +11,55 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
-import { pullFromCloud, pushToCloud, pushRecord, startRealtimeSync } from './sync'
+import { pullFromCloud, pushRecord, startRealtimeSync } from './sync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
   const [syncing, setSyncing] = useState(true)
+  const stopSyncRef = useRef(null)
 
   useEffect(() => {
-    initSync()
+    initApp()
+    return () => stopSyncRef.current?.()
   }, [])
 
-  async function initSync() {
+  async function initApp() {
     setSyncing(true)
     try {
       await pullFromCloud()
     } catch (e) {
       console.log('Initial pull failed:', e)
     }
+    await refreshPoints()
     setSyncing(false)
-    refreshPoints()
 
-    const stopSync = startRealtimeSync(() => {
-      refreshPoints()
+    // Start realtime sync in background
+    const stop = startRealtimeSync(async () => {
+      await refreshPoints()
     })
-
-    return () => stopSync()
+    stopSyncRef.current = stop
   }
 
-async function refreshPoints() {
-  const allTasks = await db.tasks.toArray()
-  const pts = allTasks
-    .filter(t => t.completed && t.date !== 'template')
-    .reduce((sum, t) => sum + (t.points || 0), 0)
-
-  let bonusPts = 0
-  try {
-    const allFeedback = await db.feedback?.toArray?.() || []
-    bonusPts = allFeedback.reduce((sum, f) => sum + (f.bonusPoints || 0), 0)
-  } catch {}
-
-  let redPts = 0
-  try {
-    const reds = await db.redemptions?.toArray?.() || []
-    redPts = reds.reduce((s, r) => s + (r.cost || 0), 0)
-  } catch {}
-
-  setTotalPoints(Math.max(0, pts + bonusPts - redPts))
-}
-  async function handleDataChange(table, record) {
-    refreshPoints()
+  async function refreshPoints() {
     try {
-      if (table && record) {
-        await pushRecord(table, record)
-      } else {
-        await pushToCloud()
-      }
+      const allTasks = await db.tasks.toArray()
+      const pts = allTasks
+        .filter(t => t.completed && t.date !== 'template')
+        .reduce((sum, t) => sum + (Number(t.points) || 0), 0)
+      let redPts = 0
+      const reds = await db.redemptions?.toArray?.() || []
+      redPts = reds.reduce((s, r) => s + (Number(r.cost) || 0), 0)
+      setTotalPoints(Math.max(0, pts - redPts))
     } catch (e) {
-      console.log('Push failed:', e)
+      console.log('refreshPoints error:', e)
+    }
+  }
+
+  // Called after any data change — updates UI instantly, syncs in background
+  async function handleDataChange(table, record) {
+    await refreshPoints()
+    if (table && record) {
+      pushRecord(table, record).catch(e => console.log('bg push error:', e))
     }
   }
 

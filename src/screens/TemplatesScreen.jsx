@@ -251,7 +251,7 @@ export default function TemplatesScreen() {
       )}
 
       {/* FAB — fixed position */}
-      <button onClick={() => setShowAddBlock(true)} style={{ position: 'fixed', bottom: '80px', right: '16px', width: '52px', height: '52px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(15,23,42,0.3)', zIndex: 100 }}>
+      <button onClick={() => setShowAddBlock(true)} style={{ position: 'fixed', bottom: '80px', right: 'calc(50% - 191px)', width: '52px', height: '52px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(15,23,42,0.3)', zIndex: 100 }}>
         <Plus size={24} color='#38bdf8' />
       </button>
     </div>
