@@ -11,6 +11,7 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
+import CloudSync from './components/CloudSync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
@@ -31,31 +32,33 @@ export default function App() {
   useEffect(() => { refreshPoints() }, [])
 
   return (
-    <BrowserRouter>
-      <div style={{
-        maxWidth: '414px',
-        margin: '0 auto',
-        minHeight: '100vh',
-        background: '#f8fafc',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
-        <TopBar totalPoints={totalPoints} />
-        <div style={{ flex: 1, paddingBottom: '70px' }}>
-          <Routes>
-            <Route path="/" element={<HomeScreen onPointsUpdate={refreshPoints} />} />
-            <Route path="/calendar" element={<CalendarScreen />} />
-            <Route path="/templates" element={<TemplatesScreen />} />
-            <Route path="/feedback" element={<FeedbackScreen />} />
-            <Route path="/rewards" element={<RewardsScreen />} />
-            <Route path="/insights" element={<InsightsScreen />} />
-            <Route path="/subjects" element={<SubjectsScreen />} />
-            <Route path="/study-analysis" element={<StudyAnalysisScreen />} />
-          </Routes>
+    <CloudSync>
+      <BrowserRouter>
+        <div style={{
+          maxWidth: '414px',
+          margin: '0 auto',
+          minHeight: '100vh',
+          background: '#f8fafc',
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <TopBar totalPoints={totalPoints} />
+          <div style={{ flex: 1, paddingBottom: '70px' }}>
+            <Routes>
+              <Route path="/" element={<HomeScreen onPointsUpdate={refreshPoints} />} />
+              <Route path="/calendar" element={<CalendarScreen />} />
+              <Route path="/templates" element={<TemplatesScreen />} />
+              <Route path="/feedback" element={<FeedbackScreen />} />
+              <Route path="/rewards" element={<RewardsScreen />} />
+              <Route path="/insights" element={<InsightsScreen />} />
+              <Route path="/subjects" element={<SubjectsScreen />} />
+              <Route path="/study-analysis" element={<StudyAnalysisScreen />} />
+            </Routes>
+          </div>
+          <BottomNav />
         </div>
-        <BottomNav />
-      </div>
-    </BrowserRouter>
+      </BrowserRouter>
+    </CloudSync>
   )
 }
