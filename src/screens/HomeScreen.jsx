@@ -163,13 +163,13 @@ export default function HomeScreen({ onPointsUpdate }) {
 
   async function handleDeleteTask(task) {
     if (task.fromTemplate) {
-      // Template task hai, DB mein nahi hai — sirf UI se hatao
       setTasks(prev => prev.filter(t => t !== task))
       return
     }
     await db.tasks.delete(task.id)
     loadDayData()
-    onPointsUpdate?.()
+    // Delete from Firestore bhi
+    onPointsUpdate?.('_delete_tasks', { id: task.id })
   }
 
   function goToPrev() { setCurrentDate(d => addDaysToStr(d, -1)) }

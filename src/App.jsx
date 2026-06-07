@@ -11,7 +11,7 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
-import { pullFromCloud, pushRecord, pushToCloud } from './sync'
+import { pullFromCloud, pushRecord, pushToCloud, deleteRecord } from './sync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
@@ -97,10 +97,7 @@ export default function App() {
     }, 500) // 500ms debounce
   }, [])
 
-  async function handleDataChange(table, record) {
-    await refreshPoints()
-    schedulePush(table, record)
-  }
+
 
   // Manual sync
   async function handleManualSync() {
