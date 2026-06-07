@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import BottomNav from './components/BottomNav'
 import TopBar from './components/TopBar'
@@ -11,33 +11,51 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
-import { pullFromCloud, pushRecord, startRealtimeSync } from './sync'
+import { pullFromCloud, pushRecord, pushToCloud } from './sync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
   const [syncing, setSyncing] = useState(true)
-  const stopSyncRef = useRef(null)
+  const [syncStatus, setSyncStatus] = useState('syncing') // 'syncing' | 'ok' | 'error'
+  const pendingPushes = useRef([])
+  const pushTimer = useRef(null)
 
   useEffect(() => {
     initApp()
-    return () => stopSyncRef.current?.()
+
+    // App wapas foreground mein aane pe pull karo
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        silentPull()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [])
 
   async function initApp() {
     setSyncing(true)
+    setSyncStatus('syncing')
     try {
       await pullFromCloud()
+      setSyncStatus('ok')
     } catch (e) {
       console.log('Initial pull failed:', e)
+      setSyncStatus('error')
     }
     await refreshPoints()
     setSyncing(false)
+  }
 
-    // Start realtime sync in background
-    const stop = startRealtimeSync(async () => {
+  // Background pull — UI block nahi hota
+  async function silentPull() {
+    try {
+      await pullFromCloud()
       await refreshPoints()
-    })
-    stopSyncRef.current = stop
+      setSyncStatus('ok')
+    } catch (e) {
+      setSyncStatus('error')
+    }
   }
 
   async function refreshPoints() {
@@ -46,20 +64,53 @@ export default function App() {
       const pts = allTasks
         .filter(t => t.completed && t.date !== 'template')
         .reduce((sum, t) => sum + (Number(t.points) || 0), 0)
-      let redPts = 0
       const reds = await db.redemptions?.toArray?.() || []
-      redPts = reds.reduce((s, r) => s + (Number(r.cost) || 0), 0)
+      const redPts = reds.reduce((s, r) => s + (Number(r.cost) || 0), 0)
       setTotalPoints(Math.max(0, pts - redPts))
     } catch (e) {
       console.log('refreshPoints error:', e)
     }
   }
 
-  // Called after any data change — updates UI instantly, syncs in background
+  // Debounced push — multiple rapid changes ko batch karo
+  const schedulePush = useCallback((table, record) => {
+    if (table && record) {
+      pendingPushes.current.push({ table, record })
+    }
+    if (pushTimer.current) clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(async () => {
+      const pushes = [...pendingPushes.current]
+      pendingPushes.current = []
+      setSyncStatus('syncing')
+      try {
+        await Promise.all(pushes.map(({ table, record }) => pushRecord(table, record)))
+        setSyncStatus('ok')
+      } catch (e) {
+        setSyncStatus('error')
+        // Retry after 3 sec
+        setTimeout(() => {
+          Promise.all(pushes.map(({ table, record }) => pushRecord(table, record)))
+            .then(() => setSyncStatus('ok'))
+            .catch(() => setSyncStatus('error'))
+        }, 3000)
+      }
+    }, 500) // 500ms debounce
+  }, [])
+
   async function handleDataChange(table, record) {
     await refreshPoints()
-    if (table && record) {
-      pushRecord(table, record).catch(e => console.log('bg push error:', e))
+    schedulePush(table, record)
+  }
+
+  // Manual sync
+  async function handleManualSync() {
+    setSyncStatus('syncing')
+    try {
+      await pullFromCloud()
+      await refreshPoints()
+      setSyncStatus('ok')
+    } catch {
+      setSyncStatus('error')
     }
   }
 
@@ -72,6 +123,16 @@ export default function App() {
       }}>
         <p style={{ fontSize: '28px', fontWeight: '900', color: '#38bdf8' }}>KitnaHua</p>
         <p style={{ fontSize: '14px', color: '#94a3b8', fontWeight: '600' }}>Syncing data...</p>
+        <div style={{
+          width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '99px', overflow: 'hidden',
+        }}>
+          <div style={{
+            height: '100%', background: '#38bdf8', borderRadius: '99px',
+            animation: 'slide 1s infinite',
+            width: '60%',
+          }} />
+        </div>
+        <style>{`@keyframes slide { 0% { transform: translateX(-100%) } 100% { transform: translateX(250%) } }`}</style>
       </div>
     )
   }
@@ -87,7 +148,7 @@ export default function App() {
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <TopBar totalPoints={totalPoints} />
+        <TopBar totalPoints={totalPoints} syncStatus={syncStatus} onManualSync={handleManualSync} />
         <div style={{ flex: 1, paddingBottom: '70px' }}>
           <Routes>
             <Route path="/" element={<HomeScreen onPointsUpdate={handleDataChange} />} />
