@@ -3,9 +3,9 @@ import dexieCloud from 'dexie-cloud-addon'
 
 export const db = new Dexie('KitnaHua', { addons: [dexieCloud] })
 
-db.version(3).stores({
+db.version(2).stores({
   days: '@date, dayType',
-  tasks: '@id, date, title, tag, priority, points, completed, feedbackDone, dayTypeTemplate',
+  tasks: '@id, date, title, tag, priority, points, completed, feedbackDone, dayTypeTemplate, subjectId, subjectName, topicId, topicName',
   feedback: '@date',
   rewards: '@id, name, cost',
   redemptions: '@id, date, rewardId, name, cost',
@@ -18,12 +18,4 @@ db.version(3).stores({
 db.cloud.configure({
   databaseUrl: 'https://ztzyryvif.dexie.cloud',
   requireAuth: false,
-  tryUseServiceWorker: false,
-})
-
-db.on('populate', () => {
-  db.rewards.bulkAdd([
-    { id: crypto.randomUUID(), name: 'Ice Cream 🍦', cost: 300 },
-    { id: crypto.randomUUID(), name: 'Movie Night 🎬', cost: 1000 },
-  ])
 })
