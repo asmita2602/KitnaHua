@@ -98,7 +98,16 @@ export default function App() {
   }, [])
 
 
+async function handleDataChange(table, record) {
+    await refreshPoints()
+    if (table === '_delete_tasks') {
+      await deleteRecord('tasks', record.id)
+      return
+    }
+    schedulePush(table, record)
+  }
 
+ 
   // Manual sync
   async function handleManualSync() {
     setSyncStatus('syncing')
