@@ -1,4 +1,4 @@
-import { Download, Upload } from 'lucide-react'
+import HamburgerMenu from './HamburgerMenu'
 
 export default function TopBar({ totalPoints, onExport, onImport }) {
 
@@ -35,14 +35,7 @@ export default function TopBar({ totalPoints, onExport, onImport }) {
             {totalPoints} 🏆
           </p>
         </div>
-        <button onClick={onExport} title="Download backup"
-          style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Download size={16} color='#94a3b8' />
-        </button>
-        <button onClick={handleImportClick} title="Restore backup"
-          style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Upload size={16} color='#94a3b8' />
-        </button>
+        <HamburgerMenu onExport={onExport} />
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ChevronDown, ChevronUp, CheckCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle, Plus, Trash2 } from 'lucide-react'
 import { db } from '../db'
 import { localDateString } from '../utils'
 
@@ -10,8 +10,14 @@ function formatDate(dateStr) {
   })
 }
 
+function formatMins(mins) {
+  if (!mins || mins <= 0) return '0h'
+  return mins < 60 ? `${mins}m` : `${Math.round((mins / 60) * 10) / 10}h`
+}
+
 const WORK_TYPES = ['Meetings', 'Access Requests', 'Development', 'Scripting', 'Documentation']
 const FEEL_OPTIONS = ['Energetic', 'Normal', 'Tired']
+const ACTIVITY_OPTIONS = ['Lecture Watched', 'Notes Made', 'Questions Solved', 'Revised', 'Learned']
 
 const SECTION_COLORS = {
   Study:      { bg: '#dbeafe', border: '#93c5fd', text: '#1e40af', dot: '#3b82f6' },
@@ -26,7 +32,7 @@ function SatisfactionRow({ value, onChange, color }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
         {[1,2,3,4,5,6,7,8,9,10].map(n => (
           <button key={n} onClick={() => onChange(n)} style={{
-            width: '28px', height: '28px', borderRadius: '50%',
+            width: '26px', height: '26px', borderRadius: '50%',
             border: `2px solid ${value >= n ? color : '#e2e8f0'}`,
             background: value >= n ? color : '#f8fafc',
             color: value >= n ? '#fff' : '#94a3b8',
@@ -59,7 +65,7 @@ function Section({ title, icon, colorKey, isOpen, onToggle, isDone, children }) 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isDone ? c.dot : '#cbd5e1' }} />
-          <span style={{ fontSize: '15px', fontWeight: '800', color: isDone ? c.text : '#0f172a', fontFamily: 'Nunito, sans-serif' }}>
+          <span style={{ fontSize: '15px', fontWeight: '800', color: isDone ? c.text : '#0f172a' }}>
             {icon} {title}
           </span>
           {isDone && (
@@ -81,7 +87,6 @@ function Label({ children }) {
       fontSize: '11px', fontWeight: '800', color: '#64748b',
       marginBottom: '6px', marginTop: '14px',
       textTransform: 'uppercase', letterSpacing: '0.5px',
-      fontFamily: 'Nunito, sans-serif',
     }}>{children}</p>
   )
 }
@@ -113,7 +118,7 @@ function Chips({ options, value, onChange, multi = false }) {
     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
       {options.map(opt => (
         <button key={opt} onClick={() => toggle(opt)} style={{
-          padding: '7px 14px', borderRadius: '20px', border: 'none',
+          padding: '6px 12px', borderRadius: '20px', border: 'none',
           cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
           fontSize: '12px', fontWeight: '700',
           background: selected(opt) ? '#0f172a' : '#f1f5f9',
@@ -124,82 +129,228 @@ function Chips({ options, value, onChange, multi = false }) {
   )
 }
 
+// ── Study Slot Component ─────────────────────────────────────────
+function StudySlot({ slot, idx, subjects, onUpdate, onDelete }) {
+  const [topics, setTopics] = useState([])
+
+  useEffect(() => {
+    if (slot.subjectId) loadTopics(slot.subjectId)
+  }, [slot.subjectId])
+
+  async function loadTopics(subjectId) {
+    const t = await db.topics.where('subjectId').equals(subjectId).toArray()
+    setTopics(t)
+  }
+
+  return (
+    <div style={{
+      background: '#f8fafc', border: '1.5px solid #e2e8f0',
+      borderRadius: '14px', padding: '14px', marginBottom: '12px',
+    }}>
+      {/* Slot header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ background: '#3b82f6', borderRadius: '20px', padding: '3px 10px' }}>
+            <p style={{ fontSize: '12px', fontWeight: '800', color: '#fff' }}>Study {idx + 1}</p>
+          </div>
+          {slot.title && (
+            <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>{slot.title}</p>
+          )}
+          {slot.plannedMins > 0 && (
+            <p style={{ fontSize: '11px', color: '#94a3b8' }}>({formatMins(slot.plannedMins)} planned)</p>
+          )}
+        </div>
+        <button onClick={onDelete} style={{ background: '#fff5f5', border: 'none', borderRadius: '8px', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Trash2 size={13} color='#ef4444' />
+        </button>
+      </div>
+
+      {/* Actual Hours */}
+      <Label>Actual Hours</Label>
+      <TextInput value={slot.actualHours} onChange={v => onUpdate({ ...slot, actualHours: v })} placeholder="e.g. 1.5" type="number" />
+
+      {/* Subject */}
+      <Label>Subject Studied</Label>
+      {subjects.length === 0 ? (
+        <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>No subjects — add from Subjects screen first.</p>
+      ) : (
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {subjects.map(sub => (
+            <button key={sub.id} onClick={() => {
+              if (slot.subjectId === sub.id) {
+                onUpdate({ ...slot, subjectId: null, subjectName: '', topicId: null, topicName: '' })
+                setTopics([])
+              } else {
+                onUpdate({ ...slot, subjectId: sub.id, subjectName: sub.name, topicId: null, topicName: '' })
+                loadTopics(sub.id)
+              }
+            }} style={{
+              padding: '6px 12px', borderRadius: '20px',
+              border: `2px solid ${slot.subjectId === sub.id ? '#3b82f6' : 'transparent'}`,
+              cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+              fontSize: '12px', fontWeight: '700',
+              background: slot.subjectId === sub.id ? '#dbeafe' : '#f1f5f9',
+              color: slot.subjectId === sub.id ? '#1e40af' : '#94a3b8',
+            }}>{sub.name}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Topic */}
+      {slot.subjectId && topics.length > 0 && (
+        <>
+          <Label>Topic Studied</Label>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {topics.map(t => (
+              <button key={t.id} onClick={() => onUpdate({
+                ...slot,
+                topicId: slot.topicId === t.id ? null : t.id,
+                topicName: slot.topicId === t.id ? '' : t.name,
+              })} style={{
+                padding: '6px 12px', borderRadius: '20px',
+                border: `2px solid ${slot.topicId === t.id ? '#8b5cf6' : 'transparent'}`,
+                cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+                fontSize: '12px', fontWeight: '700',
+                background: slot.topicId === t.id ? '#ede9fe' : '#f1f5f9',
+                color: slot.topicId === t.id ? '#5b21b6' : '#94a3b8',
+              }}>{t.name}</button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Activities */}
+      <Label>What did you do?</Label>
+      <Chips
+        options={ACTIVITY_OPTIONS}
+        value={slot.activities || []}
+        onChange={v => onUpdate({ ...slot, activities: v })}
+        multi
+      />
+
+      {/* Blockers */}
+      <Label>Major Blockers</Label>
+      <TextInput value={slot.blockers || ''} onChange={v => onUpdate({ ...slot, blockers: v })} placeholder="e.g. Couldn't focus, interruptions" />
+
+      {/* Satisfaction */}
+      <Label>Satisfaction (1–10)</Label>
+      <SatisfactionRow value={slot.satisfaction || 0} onChange={v => onUpdate({ ...slot, satisfaction: v })} color='#3b82f6' />
+    </div>
+  )
+}
+
 export default function FeedbackScreen({ onSave }) {
   const today = localDateString()
   const [open, setOpen] = useState('Study')
-  const [subjectOptions, setSubjectOptions] = useState([])
-  const [study, setStudy] = useState({ plannedHours: '', actualHours: '', subjects: [], blockers: '', satisfaction: 0 })
-  const [office, setOffice] = useState({ actualHours: '', workTypes: [], meetingsCount: '', blockers: '', satisfaction: 0 })
-  const [exercise, setExercise] = useState({ plannedDuration: '', actualDuration: '', exerciseType: '', feel: '', satisfaction: 0 })
-  const [reflection, setReflection] = useState({ overallSatisfaction: 0, biggestAchievement: '', biggestChallenge: '' })
+  const [subjects, setSubjects] = useState([])
+
+  // Study slots — array of slot objects
+  const [studySlots, setStudySlots] = useState([])
   const [studyDone, setStudyDone] = useState(false)
+
+  const [office, setOffice] = useState({ actualHours: '', workTypes: [], meetingsCount: '', blockers: '', satisfaction: 0 })
   const [officeDone, setOfficeDone] = useState(false)
+
+  const [exercise, setExercise] = useState({ plannedDuration: '', actualDuration: '', exerciseType: '', feel: '', satisfaction: 0 })
   const [exerciseDone, setExerciseDone] = useState(false)
+
+  const [reflection, setReflection] = useState({ overallSatisfaction: 0 })
   const [reflectionDone, setReflectionDone] = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
+    // Load subjects
     try {
       const subs = await db.subjects.toArray()
-      setSubjectOptions(subs.map(s => s.name))
-    } catch {
-      setSubjectOptions(['Quant', 'Reasoning', 'DSA', 'DBMS', 'OIC', 'AWS'])
-    }
+      setSubjects(subs)
+    } catch {}
 
+    // Load saved feedback
     try {
       const rec = await db.feedback?.get?.(today)
       if (rec) {
-        if (rec.study)      { setStudy(rec.study);           setStudyDone(true) }
+        if (rec.studySlots) { setStudySlots(rec.studySlots); setStudyDone(true) }
         if (rec.office)     { setOffice(rec.office);         setOfficeDone(true) }
         if (rec.exercise)   { setExercise(rec.exercise);     setExerciseDone(true) }
         if (rec.reflection) { setReflection(rec.reflection); setReflectionDone(true) }
       }
     } catch {}
 
+    // Load today's study tasks from home screen → pre-fill slots
     try {
-      const dayRec = await db.days.get(today)
-      const dayType = dayRec?.dayType || 'Normal Day'
-      const blocks = await db.tasks.where('date').equals('template').toArray()
-      const forToday = blocks.filter(b => b.dayTypeTemplate === dayType)
+      const dayRecord = await db.days.get(today)
+      const dt = dayRecord?.dayType || 'Normal Day'
 
-      const studyMins = forToday
-        .filter(b => b.tag === 'Study' && b.startTime && b.endTime)
-        .reduce((s, b) => {
-          const [sh, sm] = b.startTime.split(':').map(Number)
-          const [eh, em] = b.endTime.split(':').map(Number)
-          return s + Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
-        }, 0)
+      // Get actual tasks for today first
+      let todayTasks = await db.tasks.where('date').equals(today).toArray()
 
-      const exMins = forToday
-        .filter(b => b.tag === 'Exercise' && b.startTime && b.endTime)
-        .reduce((s, b) => {
-          const [sh, sm] = b.startTime.split(':').map(Number)
-          const [eh, em] = b.endTime.split(':').map(Number)
-          return s + Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
-        }, 0)
+      // If no tasks, fallback to template
+      if (todayTasks.length === 0) {
+        const templateTasks = await db.tasks.where('date').equals('template').toArray()
+        todayTasks = templateTasks.filter(t => t.dayTypeTemplate === dt)
+      }
 
-      if (studyMins > 0) setStudy(p => ({ ...p, plannedHours: (studyMins / 60).toFixed(1) }))
-      if (exMins > 0)    setExercise(p => ({ ...p, plannedDuration: (exMins / 60).toFixed(1) }))
+      const studyTasks = todayTasks.filter(t => t.tag === 'Study')
+
+      // Only pre-fill if no saved slots
+      const existing = await db.feedback?.get?.(today)
+      if (!existing?.studySlots && studyTasks.length > 0) {
+        const slots = studyTasks.map(task => {
+          let plannedMins = 0
+          if (task.startTime && task.endTime) {
+            const [sh, sm] = task.startTime.split(':').map(Number)
+            const [eh, em] = task.endTime.split(':').map(Number)
+            plannedMins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
+          }
+          return {
+            taskId: task.id,
+            title: task.title,
+            plannedMins,
+            subjectId: task.subjectId || null,
+            subjectName: task.subjectName || '',
+            topicId: task.topicId || null,
+            topicName: task.topicName || '',
+            actualHours: '',
+            activities: [],
+            blockers: '',
+            satisfaction: 0,
+          }
+        })
+        setStudySlots(slots)
+      }
+
+      // Exercise planned duration from tasks
+      const exTask = todayTasks.find(t => t.tag === 'Exercise' && t.startTime && t.endTime)
+      if (exTask && !existing?.exercise) {
+        const [sh, sm] = exTask.startTime.split(':').map(Number)
+        const [eh, em] = exTask.endTime.split(':').map(Number)
+        const mins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
+        if (mins > 0) setExercise(p => ({ ...p, plannedDuration: (mins / 60).toFixed(1) }))
+      }
     } catch {}
   }
 
-  async function syncSubjectsToLectures(studiedSubjectNames) {
-    if (!studiedSubjectNames?.length) return
+  async function syncSubjectsToLectures(slots) {
     try {
       const now = new Date().toISOString()
-      const allSubjects = await db.subjects.toArray()
-      for (const subName of studiedSubjectNames) {
-        const subRecord = allSubjects.find(s => s.name === subName)
-        if (!subRecord) continue
-        const topics = await db.topics.where('subjectId').equals(subRecord.id).toArray()
+      for (const slot of slots) {
+        if (!slot.subjectId) continue
+        const topics = await db.topics.where('subjectId').equals(slot.subjectId).toArray()
         for (const topic of topics) {
-          const lectures = await db.lectures.where('topicId').equals(topic.id).toArray()
+          // If specific topic selected, only update that topic's lectures
+          const lectures = slot.topicId
+            ? await db.lectures.where('topicId').equals(slot.topicId).toArray()
+            : await db.lectures.where('topicId').equals(topic.id).toArray()
+
           for (const lec of lectures) {
-            const alreadyToday = lec.lastStudied && lec.lastStudied.startsWith(today)
-            if (!alreadyToday) {
-              await db.lectures.update(lec.id, { lastStudied: now })
-            }
+            const updates = { lastStudied: now }
+            // Auto-update lecture fields based on activities
+            if (slot.activities?.includes('Lecture Watched')) updates.watched = true
+            if (slot.activities?.includes('Notes Made')) updates.notesMade = true
+            if (slot.activities?.includes('Questions Solved')) updates.questionsSolved = true
+            if (slot.activities?.includes('Revised')) updates.revisionDone = true
+            await db.lectures.update(lec.id, updates)
           }
         }
       }
@@ -210,8 +361,6 @@ export default function FeedbackScreen({ onSave }) {
 
   async function calculateBonusPoints(feedbackRecord) {
     let bonus = 0
-
-    // Study streak bonus — every 7 days = +20 pts
     try {
       const allFeedback = await db.feedback.toArray()
       let streak = 0
@@ -220,21 +369,19 @@ export default function FeedbackScreen({ onSave }) {
         d.setDate(d.getDate() - i)
         const ds = localDateString(d)
         const rec = ds === today ? feedbackRecord : allFeedback.find(f => f.date === ds)
-        if (!rec || !rec.study?.actualHours || parseFloat(rec.study.actualHours) <= 0) break
+        const totalActual = (rec?.studySlots || []).reduce((s, sl) => s + (parseFloat(sl.actualHours) || 0), 0)
+        if (!rec || totalActual <= 0) break
         streak++
       }
       bonus += Math.floor(streak / 7) * 20
     } catch {}
 
-    // Extra study hour bonus — actual > planned + 1hr → +1/3 of task points
     try {
-      const planned = parseFloat(feedbackRecord.study?.plannedHours) || 0
-      const actual  = parseFloat(feedbackRecord.study?.actualHours)  || 0
-      if (actual - planned > 1) {
+      const totalPlanned = studySlots.reduce((s, sl) => s + (sl.plannedMins / 60 || 0), 0)
+      const totalActual = studySlots.reduce((s, sl) => s + (parseFloat(sl.actualHours) || 0), 0)
+      if (totalActual - totalPlanned > 1) {
         const todayTasks = await db.tasks.where('date').equals(today).toArray()
-        const taskPoints = todayTasks
-          .filter(t => t.completed)
-          .reduce((sum, t) => sum + (t.points || 0), 0)
+        const taskPoints = todayTasks.filter(t => t.completed).reduce((sum, t) => sum + (t.points || 0), 0)
         bonus += Math.round(taskPoints / 3)
       }
     } catch {}
@@ -248,9 +395,17 @@ export default function FeedbackScreen({ onSave }) {
     const updated = { date: today, ...existing }
 
     if (section === 'Study') {
-      updated.study = study
+      updated.studySlots = studySlots
+      // Backward compat — keep study.actualHours as total
+      const totalActual = studySlots.reduce((s, sl) => s + (parseFloat(sl.actualHours) || 0), 0)
+      const totalPlanned = studySlots.reduce((s, sl) => s + (sl.plannedMins / 60 || 0), 0)
+      updated.study = {
+        actualHours: totalActual.toFixed(1),
+        plannedHours: totalPlanned.toFixed(1),
+        subjects: [...new Set(studySlots.map(s => s.subjectName).filter(Boolean))],
+      }
       setStudyDone(true)
-      await syncSubjectsToLectures(study.subjects)
+      await syncSubjectsToLectures(studySlots)
     }
     if (section === 'Office')   { updated.office = office;     setOfficeDone(true) }
     if (section === 'Exercise') { updated.exercise = exercise; setExerciseDone(true) }
@@ -265,6 +420,22 @@ export default function FeedbackScreen({ onSave }) {
     onSave?.('feedback', updated)
   }
 
+  function addSlot() {
+    setStudySlots(prev => [...prev, {
+      taskId: null, title: '', plannedMins: 0,
+      subjectId: null, subjectName: '', topicId: null, topicName: '',
+      actualHours: '', activities: [], blockers: '', satisfaction: 0,
+    }])
+  }
+
+  function updateSlot(idx, updated) {
+    setStudySlots(prev => prev.map((s, i) => i === idx ? updated : s))
+  }
+
+  function deleteSlot(idx) {
+    setStudySlots(prev => prev.filter((_, i) => i !== idx))
+  }
+
   const allDone = studyDone && officeDone && exerciseDone && reflectionDone
   const toggle = (key) => setOpen(o => o === key ? null : key)
 
@@ -277,11 +448,7 @@ export default function FeedbackScreen({ onSave }) {
       </div>
 
       {allDone && (
-        <div style={{
-          background: '#f0fdf4', border: '2px solid #4ade80',
-          borderRadius: '14px', padding: '14px 16px', marginBottom: '20px',
-          display: 'flex', alignItems: 'center', gap: '12px',
-        }}>
+        <div style={{ background: '#f0fdf4', border: '2px solid #4ade80', borderRadius: '14px', padding: '14px 16px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <CheckCircle size={22} color='#22c55e' />
           <div>
             <p style={{ fontSize: '14px', fontWeight: '800', color: '#14532d' }}>All feedback submitted!</p>
@@ -290,28 +457,44 @@ export default function FeedbackScreen({ onSave }) {
         </div>
       )}
 
+      {/* ── STUDY ── */}
       <Section title="Study Feedback" icon="📚" colorKey="Study"
         isOpen={open === 'Study'} onToggle={() => toggle('Study')} isDone={studyDone}>
-        <Label>Planned Hours</Label>
-        <TextInput value={study.plannedHours} onChange={v => setStudy({ ...study, plannedHours: v })} placeholder="e.g. 4" type="number" />
-        <Label>Actual Hours</Label>
-        <TextInput value={study.actualHours} onChange={v => setStudy({ ...study, actualHours: v })} placeholder="e.g. 2.5" type="number" />
-        <Label>Subjects Studied</Label>
-        {subjectOptions.length === 0 ? (
-          <p style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', marginTop: '4px' }}>
-            No subjects yet — add them in the Subjects screen first.
-          </p>
+
+        {studySlots.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>
+              No study slots yet. Add from home screen tasks or manually.
+            </p>
+          </div>
         ) : (
-          <Chips options={subjectOptions} value={study.subjects}
-            onChange={v => setStudy({ ...study, subjects: v })} multi />
+          studySlots.map((slot, idx) => (
+            <StudySlot
+              key={idx}
+              slot={slot}
+              idx={idx}
+              subjects={subjects}
+              onUpdate={(updated) => updateSlot(idx, updated)}
+              onDelete={() => deleteSlot(idx)}
+            />
+          ))
         )}
-        <Label>Major Blockers</Label>
-        <TextInput value={study.blockers} onChange={v => setStudy({ ...study, blockers: v })} placeholder="e.g. Unexpected office calls" />
-        <Label>Satisfaction (1–10)</Label>
-        <SatisfactionRow value={study.satisfaction} onChange={v => setStudy({ ...study, satisfaction: v })} color='#3b82f6' />
+
+        <button onClick={addSlot} style={{
+          width: '100%', padding: '10px', borderRadius: '10px',
+          border: '2px dashed #93c5fd', background: '#f0f9ff',
+          color: '#3b82f6', fontSize: '13px', fontWeight: '700',
+          cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+          marginBottom: '8px',
+        }}>
+          <Plus size={16} /> Add Study Slot
+        </button>
+
         <button onClick={() => saveSection('Study')} style={saveBtn}>Save Study Feedback</button>
       </Section>
 
+      {/* ── OFFICE ── */}
       <Section title="Office Feedback" icon="💼" colorKey="Office"
         isOpen={open === 'Office'} onToggle={() => toggle('Office')} isDone={officeDone}>
         <Label>Actual Office Hours</Label>
@@ -327,6 +510,7 @@ export default function FeedbackScreen({ onSave }) {
         <button onClick={() => saveSection('Office')} style={saveBtn}>Save Office Feedback</button>
       </Section>
 
+      {/* ── EXERCISE ── */}
       <Section title="Exercise Feedback" icon="🏃" colorKey="Exercise"
         isOpen={open === 'Exercise'} onToggle={() => toggle('Exercise')} isDone={exerciseDone}>
         <Label>Planned Duration (hrs)</Label>
@@ -342,22 +526,11 @@ export default function FeedbackScreen({ onSave }) {
         <button onClick={() => saveSection('Exercise')} style={saveBtn}>Save Exercise Feedback</button>
       </Section>
 
+      {/* ── REFLECTION ── */}
       <Section title="End of Day Reflection" icon="🌙" colorKey="Reflection"
         isOpen={open === 'Reflection'} onToggle={() => toggle('Reflection')} isDone={reflectionDone}>
         <Label>Overall Satisfaction (1–10)</Label>
         <SatisfactionRow value={reflection.overallSatisfaction} onChange={v => setReflection({ ...reflection, overallSatisfaction: v })} color='#eab308' />
-        <Label>Biggest Achievement</Label>
-        <textarea value={reflection.biggestAchievement}
-          onChange={e => setReflection({ ...reflection, biggestAchievement: e.target.value })}
-          placeholder="What went well today?" rows={2}
-          style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', resize: 'none', background: '#f8fafc', boxSizing: 'border-box' }}
-        />
-        <Label>Biggest Challenge</Label>
-        <textarea value={reflection.biggestChallenge}
-          onChange={e => setReflection({ ...reflection, biggestChallenge: e.target.value })}
-          placeholder="What was hard today?" rows={2}
-          style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', resize: 'none', background: '#f8fafc', boxSizing: 'border-box' }}
-        />
         <button onClick={() => saveSection('Reflection')} style={saveBtn}>Save Reflection</button>
       </Section>
 
@@ -366,7 +539,7 @@ export default function FeedbackScreen({ onSave }) {
 }
 
 const saveBtn = {
-  marginTop: '18px', width: '100%', padding: '12px',
+  marginTop: '14px', width: '100%', padding: '12px',
   background: '#0f172a', color: '#fff', border: 'none',
   borderRadius: '12px', fontFamily: 'Nunito, sans-serif',
   fontSize: '14px', fontWeight: '700', cursor: 'pointer',

@@ -173,6 +173,34 @@ export default function HomeScreen({ onPointsUpdate }) {
   onPointsUpdate?.('_delete_tasks', { id: task.id })
 }
 
+<button onClick={() => setEditTask({ ...task })}
+  style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: '#f0f9ff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+  ✏️
+</button>
+
+const [editTask, setEditTask] = useState(null)
+
+async function handleEditTask() {
+  if (!editTask?.title?.trim()) return
+  await db.tasks.update(editTask.id, {
+    title: editTask.title,
+    description: editTask.description,
+    startTime: editTask.startTime,
+    endTime: editTask.endTime,
+    priority: editTask.priority,
+    points: Number(editTask.points),
+    tag: editTask.tag,
+    subjectId: editTask.subjectId || null,
+    subjectName: editTask.subjectName || '',
+    topicId: editTask.topicId || null,
+    topicName: editTask.topicName || '',
+  })
+  setEditTask(null)
+  loadDayData()
+  onPointsUpdate?.()
+}
+
+
   function goToPrev() { setCurrentDate(d => addDaysToStr(d, -1)) }
   function goToNext() { setCurrentDate(d => addDaysToStr(d, 1)) }
 
@@ -380,6 +408,38 @@ export default function HomeScreen({ onPointsUpdate }) {
           </div>
         </div>
       )}
+      {editTask && (
+  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+    onClick={(e) => { if (e.target === e.currentTarget) setEditTask(null) }}>
+    <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '20px', width: '100%', maxWidth: '414px', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ width: '36px', height: '4px', background: '#e2e8f0', borderRadius: '99px', margin: '0 auto 18px' }} />
+      <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '16px' }}>Edit Task</p>
+      {[
+        { label: 'Title *', key: 'title', type: 'text' },
+        { label: 'Description', key: 'description', type: 'text' },
+        { label: 'Start Time', key: 'startTime', type: 'time' },
+        { label: 'End Time', key: 'endTime', type: 'time' },
+        { label: 'Points', key: 'points', type: 'number' },
+      ].map(field => (
+        <div key={field.key} style={{ marginBottom: '12px' }}>
+          <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{field.label}</p>
+          <input type={field.type} value={editTask[field.key] || ''} onChange={e => setEditTask({ ...editTask, [field.key]: e.target.value })}
+            style={{ width: '100%', padding: '11px 13px', borderRadius: '11px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', boxSizing: 'border-box', background: '#f8fafc' }} />
+        </div>
+      ))}
+      <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priority</p>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+        {['High', 'Medium', 'Low'].map(p => (
+          <button key={p} onClick={() => setEditTask({ ...editTask, priority: p })} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: `2px solid ${editTask.priority === p ? PRIORITY_COLORS[p] : '#e2e8f0'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '13px', fontWeight: '800', background: editTask.priority === p ? PRIORITY_COLORS[p] : '#fff', color: editTask.priority === p ? '#fff' : '#94a3b8' }}>{p}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '10px' }}>
+        <button onClick={() => setEditTask(null)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
+        <button onClick={handleEditTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Save Changes</button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* FAB */}
       <button onClick={() => setShowAddTask(true)} style={{ position: 'fixed', bottom: '84px', right: 'calc(50% - 191px)', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
