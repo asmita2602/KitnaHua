@@ -19,9 +19,7 @@ function getFirstDayOfMonth(year, month) {
   return new Date(year, month, 1).getDay()
 }
 
-function getTodayString() {
-  return new Date().toISOString().split('T')[0]
-}
+import { localDateString } from '../utils'
 
 function getDefaultDayType(dateStr) {
   const day = new Date(dateStr + 'T00:00:00').getDay()

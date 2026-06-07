@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { BookOpen, TrendingUp, Award, Clock, BarChart2, Brain } from 'lucide-react'
+import { BookOpen, Award, Clock, BarChart2, Brain } from 'lucide-react'
 import { db } from '../db'
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_MODEL = 'gemini-1.5-flash'
+const GEMINI_MODEL   = 'gemini-1.5-flash'
 
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) return null
@@ -60,81 +60,73 @@ function Card({ children, style = {} }) {
 }
 
 export default function StudyAnalysisScreen() {
-  const [subjects, setSubjects] = useState([])
+  const [subjects,     setSubjects]     = useState([])
   const [subjectHours, setSubjectHours] = useState({})
   const [activityData, setActivityData] = useState({ watched: 0, notesMade: 0, questionsSolved: 0, revisionDone: 0 })
-  const [ranking, setRanking] = useState([])
-  const [top5, setTop5] = useState([])
-  const [aiCoach, setAiCoach] = useState('')
-  const [aiLoading, setAiLoading] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [ranking,      setRanking]      = useState([])
+  const [top5,         setTop5]         = useState([])
+  const [aiCoach,      setAiCoach]      = useState('')
+  const [aiLoading,    setAiLoading]    = useState(false)
+  const [loaded,       setLoaded]       = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    const subs = await db.subjects.toArray()
+    const subs        = await db.subjects.toArray()
     const allFeedback = await db.feedback?.toArray?.() || []
     const allLectures = await db.lectures.toArray()
 
-    // Subject hours from feedback
+    // ✅ fixed: read from f.study.subjects + f.study.actualHours
     const hoursMap = {}
     allFeedback.forEach(f => {
-      f.studySessions?.forEach(sess => {
-        if (sess.subjectName) {
-          hoursMap[sess.subjectName] = (hoursMap[sess.subjectName] || 0) + (parseFloat(sess.actualHours) || 0)
-        }
-      })
+      if (f.study?.subjects?.length && f.study?.actualHours) {
+        const hrs        = parseFloat(f.study.actualHours) || 0
+        const perSubject = hrs / f.study.subjects.length
+        f.study.subjects.forEach(subName => {
+          hoursMap[subName] = (hoursMap[subName] || 0) + perSubject
+        })
+      }
     })
     setSubjectHours(hoursMap)
 
-    // Activity data from lectures
+    // Activity from lectures
     const activity = { watched: 0, notesMade: 0, questionsSolved: 0, revisionDone: 0 }
     allLectures.forEach(l => {
-      if (l.watched) activity.watched++
-      if (l.notesMade) activity.notesMade++
-      if (l.questionsSolved) activity.questionsSolved++
-      if (l.revisionDone) activity.revisionDone++
+      if (l.watched)          activity.watched++
+      if (l.notesMade)        activity.notesMade++
+      if (l.questionsSolved)  activity.questionsSolved++
+      if (l.revisionDone)     activity.revisionDone++
     })
     setActivityData(activity)
 
-    // Subject completion data
+    // Subject completion
     const subjectData = []
     for (const sub of subs) {
       const topics = await db.topics.where('subjectId').equals(sub.id).toArray()
       let totalLectures = 0, completedLectures = 0, notesMade = 0, questionsSolved = 0, revisionDone = 0
       for (const topic of topics) {
         const lectures = await db.lectures.where('topicId').equals(topic.id).toArray()
-        totalLectures += lectures.length
+        totalLectures     += lectures.length
         completedLectures += lectures.filter(l => l.watched).length
-        notesMade += lectures.filter(l => l.notesMade).length
-        questionsSolved += lectures.filter(l => l.questionsSolved).length
-        revisionDone += lectures.filter(l => l.revisionDone).length
+        notesMade         += lectures.filter(l => l.notesMade).length
+        questionsSolved   += lectures.filter(l => l.questionsSolved).length
+        revisionDone      += lectures.filter(l => l.revisionDone).length
       }
       const completion = totalLectures > 0 ? Math.round((completedLectures / totalLectures) * 100) : 0
-      const hours = hoursMap[sub.name] || 0
-      const rankScore = (completion * 0.4) + (hours * 3 * 0.3) + (questionsSolved * 0.2) + (revisionDone * 0.1)
+      const hours      = hoursMap[sub.name] || 0
+      const rankScore  = (completion * 0.4) + (hours * 3 * 0.3) + (questionsSolved * 0.2) + (revisionDone * 0.1)
       subjectData.push({ ...sub, totalLectures, completedLectures, completion, hours, notesMade, questionsSolved, revisionDone, rankScore })
     }
 
     setSubjects(subjectData)
-
-    // Ranking
-    const ranked = [...subjectData].sort((a, b) => b.rankScore - a.rankScore)
-    setRanking(ranked)
-
-    // Top 5 by hours
-    const top = [...subjectData].sort((a, b) => b.hours - a.hours).slice(0, 5)
-    setTop5(top)
-
+    setRanking([...subjectData].sort((a, b) => b.rankScore - a.rankScore))
+    setTop5([...subjectData].sort((a, b) => b.hours - a.hours).slice(0, 5))
     setLoaded(true)
 
-    // AI Coach
-    if (GEMINI_API_KEY && subjectData.length > 0) {
-      loadAiCoach(subjectData, hoursMap)
-    }
+    if (subjectData.length > 0) loadAiCoach(subjectData)
   }
 
-  async function loadAiCoach(subjectData, hoursMap) {
+  async function loadAiCoach(subjectData) {
     setAiLoading(true)
     const subSummary = subjectData.map(s =>
       `${s.name}: ${s.completion}% complete, ${s.hours.toFixed(1)}h studied, ${s.questionsSolved} questions solved`
@@ -147,19 +139,35 @@ ${subSummary}
 
 Give a 3-4 line honest assessment:
 - Which subjects are progressing well
-- Which need more attention
+- Which need more attention  
 - One specific actionable advice for this week
 - Be strict but not demotivating
 
 Keep it concise, no bullet points, plain text only.`
 
-    const response = await callGemini(prompt)
-    if (response) setAiCoach(response)
-    else setAiCoach('Complete more lectures and study sessions to get personalized AI coaching advice.')
+    if (GEMINI_API_KEY) {
+      const response = await callGemini(prompt)
+      if (response) { setAiCoach(response); setAiLoading(false); return }
+    }
+
+    // Fallback rule engine
+    const sorted   = [...subjectData].sort((a, b) => a.completion - b.completion)
+    const weakest  = sorted[0]
+    const strongest = sorted[sorted.length - 1]
+    const lowHours = subjectData.filter(s => s.hours < 1)
+    let msg = ''
+    if (weakest && strongest && weakest.name !== strongest.name) {
+      msg += `${strongest.name} is your strongest subject at ${strongest.completion}% completion. `
+      msg += `${weakest.name} needs urgent attention — only ${weakest.completion}% done. `
+    }
+    if (lowHours.length > 0) {
+      msg += `${lowHours.map(s => s.name).join(', ')} ${lowHours.length === 1 ? 'has' : 'have'} less than 1 hour of study. `
+    }
+    msg += 'Focus on revision and solving questions — not just watching lectures.'
+    setAiCoach(msg)
     setAiLoading(false)
   }
 
-  const maxHours = Math.max(...Object.values(subjectHours), 1)
   const maxActivity = Math.max(activityData.watched, activityData.notesMade, activityData.questionsSolved, activityData.revisionDone, 1)
 
   if (!loaded) {
@@ -175,15 +183,10 @@ Keep it concise, no bullet points, plain text only.`
       <div style={{ padding: '16px', fontFamily: 'Nunito, sans-serif' }}>
         <p style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>Analytics</p>
         <p style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', marginBottom: '20px' }}>Study Analysis</p>
-        <div style={{
-          background: '#fff', borderRadius: '16px', padding: '32px',
-          textAlign: 'center', border: '1px solid #e2e8f0',
-        }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
           <p style={{ fontSize: '28px', marginBottom: '8px' }}>📚</p>
           <p style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>No subjects yet</p>
-          <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
-            Add subjects from the Subjects screen first
-          </p>
+          <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>Add subjects from the Subjects screen first</p>
         </div>
       </div>
     )
@@ -219,10 +222,10 @@ Keep it concise, no bullet points, plain text only.`
       <Card>
         <SectionHeader icon={BarChart2} iconColor='#8b5cf6' title="Learning Activity" />
         {[
-          { label: 'Lectures Watched', value: activityData.watched, color: '#3b82f6' },
-          { label: 'Notes Made', value: activityData.notesMade, color: '#8b5cf6' },
-          { label: 'Questions Solved', value: activityData.questionsSolved, color: '#f97316' },
-          { label: 'Revision Done', value: activityData.revisionDone, color: '#22c55e' },
+          { label: 'Lectures Watched',  value: activityData.watched,         color: '#3b82f6' },
+          { label: 'Notes Made',        value: activityData.notesMade,        color: '#8b5cf6' },
+          { label: 'Questions Solved',  value: activityData.questionsSolved,  color: '#f97316' },
+          { label: 'Revision Done',     value: activityData.revisionDone,     color: '#22c55e' },
         ].map(item => (
           <div key={item.label} style={{ marginBottom: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
@@ -237,6 +240,9 @@ Keep it concise, no bullet points, plain text only.`
       {/* Section 3 — Subject Ranking */}
       <Card>
         <SectionHeader icon={Award} iconColor='#f59e0b' title="Subject Ranking" />
+        <p style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', marginBottom: '10px' }}>
+          Score = 40% completion + 30% study hours + 20% questions + 10% revision
+        </p>
         {ranking.map((sub, idx) => (
           <div key={sub.id} style={{
             display: 'flex', alignItems: 'center', gap: '12px',
@@ -247,17 +253,14 @@ Keep it concise, no bullet points, plain text only.`
               background: idx === 0 ? '#fef9c3' : idx === 1 ? '#f1f5f9' : idx === 2 ? '#ffedd5' : '#f8fafc',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <p style={{
-                fontSize: '13px', fontWeight: '900',
-                color: idx === 0 ? '#854d0e' : idx === 1 ? '#475569' : idx === 2 ? '#9a3412' : '#94a3b8',
-              }}>
+              <p style={{ fontSize: '13px', fontWeight: '900', color: idx === 0 ? '#854d0e' : idx === 1 ? '#475569' : idx === 2 ? '#9a3412' : '#94a3b8' }}>
                 {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
               </p>
             </div>
             <div style={{ flex: 1 }}>
               <p style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a' }}>{sub.name}</p>
               <p style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>
-                {sub.completion}% complete · {sub.hours.toFixed(1)}h studied
+                {sub.completion}% done · {sub.hours.toFixed(1)}h studied · {sub.questionsSolved} Q solved
               </p>
             </div>
           </div>
@@ -268,42 +271,45 @@ Keep it concise, no bullet points, plain text only.`
       <Card>
         <SectionHeader icon={Clock} iconColor='#22c55e' title="Top 5 Most Studied" />
         {top5.length === 0 ? (
-          <p style={{ fontSize: '13px', color: '#94a3b8' }}>No study hours recorded yet.</p>
-        ) : top5.map((sub, idx) => (
-          <div key={sub.id} style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '8px 0', borderBottom: idx < top5.length - 1 ? '1px solid #f1f5f9' : 'none',
-          }}>
-            <p style={{ fontSize: '13px', fontWeight: '800', color: '#94a3b8', minWidth: '20px' }}>
-              #{idx + 1}
-            </p>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{sub.name}</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <p style={{ fontSize: '14px', fontWeight: '800', color: '#22c55e' }}>
-                {sub.hours.toFixed(1)} hrs
-              </p>
-            </div>
-          </div>
-        ))}
-        {top5.length > 0 && (
-          <div style={{ marginTop: '14px' }}>
+          <p style={{ fontSize: '13px', color: '#94a3b8' }}>
+            No study hours recorded yet. Submit feedback with subjects studied.
+          </p>
+        ) : (
+          <>
             {top5.map((sub, idx) => (
-              <div key={sub.id} style={{ marginBottom: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                  <p style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>{sub.name}</p>
-                  <p style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>
-                    {Math.round((sub.hours / Math.max(...top5.map(s => s.hours), 1)) * 100)}%
-                  </p>
-                </div>
-                <ProgressBar
-                  value={(sub.hours / Math.max(...top5.map(s => s.hours), 1)) * 100}
-                  color={['#3b82f6', '#8b5cf6', '#22c55e', '#f97316', '#ef4444'][idx]}
-                />
+              <div key={sub.id} style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '8px 0', borderBottom: idx < top5.length - 1 ? '1px solid #f1f5f9' : 'none',
+              }}>
+                <p style={{ fontSize: '13px', fontWeight: '800', color: '#94a3b8', minWidth: '20px' }}>
+                  #{idx + 1}
+                </p>
+                <p style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a', flex: 1 }}>{sub.name}</p>
+                <p style={{ fontSize: '14px', fontWeight: '800', color: '#22c55e' }}>
+                  {sub.hours.toFixed(1)} hrs
+                </p>
               </div>
             ))}
-          </div>
+            <div style={{ marginTop: '14px' }}>
+              {top5.map((sub, idx) => {
+                const maxH = Math.max(...top5.map(s => s.hours), 1)
+                return (
+                  <div key={sub.id} style={{ marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <p style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>{sub.name}</p>
+                      <p style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>
+                        {Math.round((sub.hours / maxH) * 100)}%
+                      </p>
+                    </div>
+                    <ProgressBar
+                      value={(sub.hours / maxH) * 100}
+                      color={['#3b82f6', '#8b5cf6', '#22c55e', '#f97316', '#ef4444'][idx]}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </Card>
 
@@ -313,9 +319,7 @@ Keep it concise, no bullet points, plain text only.`
           <Brain size={17} color='#38bdf8' />
           <p style={{ fontSize: '16px', fontWeight: '800', color: '#fff' }}>AI Study Coach</p>
           {GEMINI_API_KEY && (
-            <div style={{
-              background: '#1e293b', borderRadius: '20px', padding: '3px 8px', marginLeft: 'auto',
-            }}>
+            <div style={{ background: '#1e293b', borderRadius: '20px', padding: '3px 8px', marginLeft: 'auto' }}>
               <p style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>✦ Gemini</p>
             </div>
           )}

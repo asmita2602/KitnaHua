@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, X, Gift, Zap, Flame } from 'lucide-react'
 import { db } from '../db'
+import { localDateString } from '../utils'
 
 const PRESET_REWARDS = [
   { name: 'Ice Cream 🍦', cost: 300, emoji: '🍦' },
@@ -9,12 +10,8 @@ const PRESET_REWARDS = [
   { name: 'Rest Day 😴', cost: 2000, emoji: '😴' },
 ]
 
-function getTodayString() {
-  return new Date().toISOString().split('T')[0]
-}
-
 export default function RewardsScreen() {
-  const today = getTodayString()
+  const today = localDateString()
   const [totalPoints, setTotalPoints] = useState(0)
   const [studyStreak, setStudyStreak] = useState(0)
   const [exerciseStreak, setExerciseStreak] = useState(0)
@@ -52,37 +49,42 @@ export default function RewardsScreen() {
     // Load custom rewards
     let customRewards = []
     try { customRewards = await db.rewards?.toArray?.() || [] } catch {}
-    setRewards([...PRESET_REWARDS.map((r, i) => ({ ...r, id: `preset-${i}`, isPreset: true })),
-      ...customRewards.map(r => ({ ...r, isPreset: false }))])
+    setRewards([
+      ...PRESET_REWARDS.map((r, i) => ({ ...r, id: `preset-${i}`, isPreset: true })),
+      ...customRewards.map(r => ({ ...r, isPreset: false })),
+    ])
 
-    // Streaks — count consecutive days with study/exercise feedback
+    // Streaks
     const feedback = []
     try {
       const all = await db.feedback?.toArray?.() || []
       feedback.push(...all)
     } catch {}
 
-    const sortedDates = feedback.map(f => f.date).sort().reverse()
-    let sStreak = 0, eStreak = 0
-    const todayD = new Date(today)
-    for (let i = 0; ; i++) {
-      const d = new Date(todayD)
+    // If today's feedback not submitted yet, start counting from yesterday
+    const todayFb = feedback.find(f => f.date === today)
+    const startOffset = todayFb ? 0 : 1
+
+    let sStreak = 0
+    for (let i = startOffset; ; i++) {
+      const d = new Date()
       d.setDate(d.getDate() - i)
-      const ds = d.toISOString().split('T')[0]
+      const ds = localDateString(d)
       const rec = feedback.find(f => f.date === ds)
-      if (!rec) break
-      if (rec.study?.actualHours > 0) sStreak++
-      else if (i > 0) break
+      if (!rec || !rec.study?.actualHours || parseFloat(rec.study.actualHours) <= 0) break
+      sStreak++
     }
-    for (let i = 0; ; i++) {
-      const d = new Date(todayD)
+
+    let eStreak = 0
+    for (let i = startOffset; ; i++) {
+      const d = new Date()
       d.setDate(d.getDate() - i)
-      const ds = d.toISOString().split('T')[0]
+      const ds = localDateString(d)
       const rec = feedback.find(f => f.date === ds)
-      if (!rec) break
-      if (rec.exercise?.actualDuration > 0) eStreak++
-      else if (i > 0) break
+      if (!rec || !rec.exercise?.actualDuration || parseFloat(rec.exercise.actualDuration) <= 0) break
+      eStreak++
     }
+
     setStudyStreak(sStreak)
     setExerciseStreak(eStreak)
   }
@@ -180,17 +182,37 @@ export default function RewardsScreen() {
         )}
       </div>
 
-  
+      {/* Streak Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+        {[
+          { label: 'Study Streak', value: studyStreak, color: '#3b82f6', bg: '#dbeafe' },
+          { label: 'Exercise Streak', value: exerciseStreak, color: '#22c55e', bg: '#dcfce7' },
+        ].map(s => (
+          <div key={s.label} style={{
+            background: s.bg, borderRadius: '16px', padding: '16px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+              <Flame size={16} color={s.color} />
+              <p style={{ fontSize: '11px', fontWeight: '700', color: s.color, fontFamily: 'Nunito, sans-serif' }}>
+                {s.label}
+              </p>
+            </div>
+            <p style={{ fontSize: '32px', fontWeight: '900', color: '#0f172a', fontFamily: 'Nunito, sans-serif' }}>
+              {s.value}
+            </p>
+            <p style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', fontFamily: 'Nunito, sans-serif' }}>
+              {s.value === 1 ? 'day' : 'days'}
+            </p>
+          </div>
+        ))}
+      </div>
+
       {/* Reward Catalog */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <p style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>Reward Catalog</p>
-        <div style={{
-          background: '#f0fdf4', border: '1px solid #86efac',
-          borderRadius: '8px', padding: '4px 10px',
-        }}>
-          <p style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a' }}>
-            1 reward/day max
-          </p>
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '4px 10px' }}>
+          <p style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a' }}>1 reward/day max</p>
         </div>
       </div>
 
@@ -205,15 +227,12 @@ export default function RewardsScreen() {
               gap: '8px', position: 'relative',
             }}>
               {!reward.isPreset && (
-                <button
-                  onClick={() => handleDeleteReward(reward.id)}
-                  style={{
-                    position: 'absolute', top: '8px', right: '8px',
-                    background: '#fff5f5', border: 'none', borderRadius: '6px',
-                    width: '22px', height: '22px', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
+                <button onClick={() => handleDeleteReward(reward.id)} style={{
+                  position: 'absolute', top: '8px', right: '8px',
+                  background: '#fff5f5', border: 'none', borderRadius: '6px',
+                  width: '22px', height: '22px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
                   <X size={12} color='#ef4444' />
                 </button>
               )}
@@ -224,25 +243,19 @@ export default function RewardsScreen() {
               }}>
                 {reward.name.replace(/[^\w\s]/g, '').trim() || reward.name}
               </p>
-              <div style={{
-                background: '#fef9c3', borderRadius: '20px', padding: '3px 10px',
-              }}>
+              <div style={{ background: '#fef9c3', borderRadius: '20px', padding: '3px 10px' }}>
                 <p style={{ fontSize: '12px', fontWeight: '800', color: '#854d0e', fontFamily: 'Nunito, sans-serif' }}>
-                  {reward.cost} 🪙 
+                  {reward.cost} 🪙
                 </p>
               </div>
-              <button
-                onClick={() => handleRedeem(reward)}
-                style={{
-                  width: '100%', padding: '8px', borderRadius: '10px',
-                  border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed',
-                  background: canAfford ? '#0f172a' : '#f1f5f9',
-                  color: canAfford ? '#fff' : '#94a3b8',
-                  fontSize: '12px', fontWeight: '700',
-                  fontFamily: 'Nunito, sans-serif',
-                  transition: 'all 0.15s',
-                }}
-              >
+              <button onClick={() => handleRedeem(reward)} style={{
+                width: '100%', padding: '8px', borderRadius: '10px',
+                border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed',
+                background: canAfford ? '#0f172a' : '#f1f5f9',
+                color: canAfford ? '#fff' : '#94a3b8',
+                fontSize: '12px', fontWeight: '700',
+                fontFamily: 'Nunito, sans-serif', transition: 'all 0.15s',
+              }}>
                 {canAfford ? 'Redeem' : 'Need more pts'}
               </button>
             </div>
@@ -356,16 +369,13 @@ export default function RewardsScreen() {
       )}
 
       {/* FAB */}
-      <button
-        onClick={() => setShowAddReward(true)}
-        style={{
-          position: 'fixed', bottom: '80px', right: 'calc(50% - 199px)',
-          width: '52px', height: '52px', borderRadius: '50%',
-          background: '#0f172a', border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 4px 12px rgba(15,23,42,0.3)', zIndex: 100,
-        }}
-      >
+      <button onClick={() => setShowAddReward(true)} style={{
+        position: 'fixed', bottom: '80px', right: 'calc(50% - 199px)',
+        width: '52px', height: '52px', borderRadius: '50%',
+        background: '#0f172a', border: 'none', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 4px 12px rgba(15,23,42,0.3)', zIndex: 100,
+      }}>
         <Plus size={24} color='#38bdf8' />
       </button>
     </div>
