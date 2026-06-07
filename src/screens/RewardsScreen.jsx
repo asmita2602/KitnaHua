@@ -370,7 +370,7 @@ export default function RewardsScreen() {
 
       {/* FAB */}
       <button onClick={() => setShowAddReward(true)} style={{
-        position: 'fixed', bottom: '80px', right: 'calc(50% - 199px)',
+        position: 'fixed', bottom: '80px', right: '16px',
         width: '52px', height: '52px', borderRadius: '50%',
         background: '#0f172a', border: 'none', cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',

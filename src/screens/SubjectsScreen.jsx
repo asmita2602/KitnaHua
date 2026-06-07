@@ -189,7 +189,7 @@ export default function SubjectsScreen() {
       )}
 
       {/* FAB */}
-      <button onClick={() => setShowAddSubject(true)} style={{ position: 'fixed', bottom: '88px', right: 'calc(50% - 199px)', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
+      <button onClick={() => setShowAddSubject(true)} style={{ position: 'fixed', bottom: '88px', right: '16px', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
         <Plus size={24} color='#38bdf8' />
       </button>
     </div>
@@ -332,7 +332,7 @@ function SubjectDetailScreen({ subject, onBack }) {
         </div>
       )}
 
-      <button onClick={() => setShowAddTopic(true)} style={{ position: 'fixed', bottom: '88px', right: 'calc(50% - 199px)', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
+      <button onClick={() => setShowAddTopic(true)} style={{ position: 'fixed', bottom: '88px', right: '16px', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
         <Plus size={24} color='#38bdf8' />
       </button>
     </div>
