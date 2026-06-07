@@ -1,22 +1,15 @@
 import Dexie from 'dexie'
-import dexieCloud from 'dexie-cloud-addon'
 
-export const db = new Dexie('KitnaHua', { addons: [dexieCloud] })
+export const db = new Dexie('KitnaHua')
 
 db.version(2).stores({
-  days: '@date, dayType',
-  tasks: '@id, date, title, tag, priority, points, completed, feedbackDone, dayTypeTemplate, subjectId, subjectName, topicId, topicName',
-  feedback: '@date',
-  rewards: '@id, name, cost',
-  redemptions: '@id, date, rewardId, name, cost',
-  aiAnalysis: '@date, score, rating, analysis, recommendation, reclassifiedType',
-  subjects: '@id, name, description',
-  topics: '@id, subjectId, name, totalLectures',
-  lectures: '@id, topicId, subjectId, name, watched, notesMade, questionsSolved, revisionDone, lastStudied',
-})
-
-db.cloud.configure({
-  databaseUrl: 'https://ztzyryvif.dexie.cloud',
-  requireAuth: true,
-  tryUseServiceWorker: false,
+  days: 'date, dayType',
+  tasks: '++id, date, title, tag, priority, points, completed, feedbackDone, dayTypeTemplate, subjectId, subjectName, topicId, topicName',
+  feedback: 'date',
+  rewards: '++id, name, cost',
+  redemptions: '++id, date, rewardId, name, cost',
+  aiAnalysis: 'date, score, rating, analysis, recommendation, reclassifiedType',
+  subjects: '++id, name, description',
+  topics: '++id, subjectId, name, totalLectures',
+  lectures: '++id, topicId, subjectId, name, watched, notesMade, questionsSolved, revisionDone, lastStudied',
 })

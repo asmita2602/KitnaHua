@@ -11,10 +11,32 @@ import InsightsScreen from './screens/InsightsScreen'
 import SubjectsScreen from './screens/SubjectsScreen'
 import StudyAnalysisScreen from './screens/StudyAnalysisScreen'
 import { db } from './db'
-import CloudSync from './components/CloudSync'
+import { pullFromCloud, pushToCloud, startRealtimeSync } from './sync'
 
 export default function App() {
   const [totalPoints, setTotalPoints] = useState(0)
+  const [syncing, setSyncing] = useState(true)
+
+  useEffect(() => {
+    initSync()
+  }, [])
+
+  async function initSync() {
+    setSyncing(true)
+    try {
+      await pullFromCloud()
+    } catch (e) {
+      console.log('Initial pull failed:', e)
+    }
+    setSyncing(false)
+    refreshPoints()
+
+    const stopSync = startRealtimeSync(() => {
+      refreshPoints()
+    })
+
+    return () => stopSync()
+  }
 
   async function refreshPoints() {
     const allTasks = await db.tasks.toArray()
@@ -29,36 +51,54 @@ export default function App() {
     setTotalPoints(Math.max(0, pts - redPts))
   }
 
-  useEffect(() => { refreshPoints() }, [])
+  async function handleDataChange() {
+    refreshPoints()
+    try {
+      await pushToCloud()
+    } catch (e) {
+      console.log('Push failed:', e)
+    }
+  }
+
+  if (syncing) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#f8fafc',
+        fontFamily: 'Nunito, sans-serif', flexDirection: 'column', gap: '12px',
+      }}>
+        <p style={{ fontSize: '28px', fontWeight: '900', color: '#38bdf8' }}>KitnaHua</p>
+        <p style={{ fontSize: '14px', color: '#94a3b8', fontWeight: '600' }}>Syncing data...</p>
+      </div>
+    )
+  }
 
   return (
-    <CloudSync>
-      <BrowserRouter>
-        <div style={{
-          maxWidth: '414px',
-          margin: '0 auto',
-          minHeight: '100vh',
-          background: '#f8fafc',
-          position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <TopBar totalPoints={totalPoints} />
-          <div style={{ flex: 1, paddingBottom: '70px' }}>
-            <Routes>
-              <Route path="/" element={<HomeScreen onPointsUpdate={refreshPoints} />} />
-              <Route path="/calendar" element={<CalendarScreen />} />
-              <Route path="/templates" element={<TemplatesScreen />} />
-              <Route path="/feedback" element={<FeedbackScreen />} />
-              <Route path="/rewards" element={<RewardsScreen />} />
-              <Route path="/insights" element={<InsightsScreen />} />
-              <Route path="/subjects" element={<SubjectsScreen />} />
-              <Route path="/study-analysis" element={<StudyAnalysisScreen />} />
-            </Routes>
-          </div>
-          <BottomNav />
+    <BrowserRouter>
+      <div style={{
+        maxWidth: '414px',
+        margin: '0 auto',
+        minHeight: '100vh',
+        background: '#f8fafc',
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        <TopBar totalPoints={totalPoints} />
+        <div style={{ flex: 1, paddingBottom: '70px' }}>
+          <Routes>
+            <Route path="/" element={<HomeScreen onPointsUpdate={handleDataChange} />} />
+            <Route path="/calendar" element={<CalendarScreen />} />
+            <Route path="/templates" element={<TemplatesScreen />} />
+            <Route path="/feedback" element={<FeedbackScreen onSave={handleDataChange} />} />
+            <Route path="/rewards" element={<RewardsScreen onRedeem={handleDataChange} />} />
+            <Route path="/insights" element={<InsightsScreen />} />
+            <Route path="/subjects" element={<SubjectsScreen />} />
+            <Route path="/study-analysis" element={<StudyAnalysisScreen />} />
+          </Routes>
         </div>
-      </BrowserRouter>
-    </CloudSync>
+        <BottomNav />
+      </div>
+    </BrowserRouter>
   )
 }
