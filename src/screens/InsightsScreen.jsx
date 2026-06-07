@@ -2,15 +2,20 @@ import { useState, useEffect } from 'react'
 import { Brain, RefreshCw, TrendingUp, BookOpen, Dumbbell, Star, BarChart2 } from 'lucide-react'
 import { db } from '../db'
 
-const GEMINI_MODEL = 'gemini-1.5-flash'
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
+const GEMINI_MODEL = 'gemini-1.5-flash'
 
 function getTodayString() {
-  return new Date().toISOString().split('T')[0]
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function formatDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00')
+  const parts = dateStr.split('-').map(Number)
+  const d = new Date(parts[0], parts[1] - 1, parts[2])
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
@@ -72,22 +77,19 @@ function MiniHeatmap({ feedbackList }) {
   for (let i = 27; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(d.getDate() - i)
-    const ds = d.toISOString().split('T')[0]
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     days.push(ds)
   }
-
   return (
     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
       {days.map(ds => {
         const rec = feedbackList.find(f => f.date === ds)
-        const hasStudy = rec?.study?.actualHours > 0
+        const studyHrs = rec?.studySessions?.reduce((s, sess) => s + (parseFloat(sess.actualHours) || 0), 0) || 0
         const hasExercise = rec?.exercise?.actualDuration > 0
-        const color = hasStudy && hasExercise ? '#22c55e' : hasStudy ? '#3b82f6' : hasExercise ? '#f97316' : '#e2e8f0'
+        const color = studyHrs > 0 && hasExercise ? '#22c55e' : studyHrs > 0 ? '#3b82f6' : hasExercise ? '#f97316' : '#e2e8f0'
         return (
           <div key={ds} style={{
-            width: '16px', height: '16px', borderRadius: '4px',
-            background: color, flexShrink: 0,
-            title: ds,
+            width: '16px', height: '16px', borderRadius: '4px', background: color,
           }} />
         )
       })}
@@ -95,39 +97,31 @@ function MiniHeatmap({ feedbackList }) {
   )
 }
 
-// Rule-based fallback engine
 function computeLocalAnalysis(feedback, dayType) {
   if (!feedback) return null
-  const { study, office, exercise } = feedback
+  const { studySessions, office, exercise } = feedback
 
   let score = 5
-  let reasons = []
   let reclassifiedType = dayType
   let reclassifyReason = null
 
-  // Study scoring
-  if (study) {
-    const planned = parseFloat(study.plannedHours) || 0
-    const actual = parseFloat(study.actualHours) || 0
-    const pct = planned > 0 ? (actual / planned) * 100 : 0
-    if (pct >= 100) { score += 2; reasons.push('Study target met ✓') }
-    else if (pct >= 80) { score += 1.5; reasons.push('Study nearly complete') }
-    else if (pct >= 60) { score += 0.5; reasons.push('Study partially done') }
-    else if (pct >= 40) { score -= 0.5; reasons.push('Study below average') }
-    else if (planned > 0) { score -= 1.5; reasons.push('Study severely behind') }
-  }
+  const totalActualStudy = studySessions?.reduce((s, sess) => s + (parseFloat(sess.actualHours) || 0), 0) || 0
 
-  // Exercise scoring
+  if (totalActualStudy >= 4) { score += 2 }
+  else if (totalActualStudy >= 3) { score += 1.5 }
+  else if (totalActualStudy >= 2) { score += 0.5 }
+  else if (totalActualStudy >= 1) { score -= 0.5 }
+  else { score -= 1.5 }
+
   if (exercise) {
     const planned = parseFloat(exercise.plannedDuration) || 0
     const actual = parseFloat(exercise.actualDuration) || 0
     const pct = planned > 0 ? (actual / planned) * 100 : 0
-    if (pct >= 100) { score += 1; reasons.push('Exercise completed ✓') }
-    else if (pct >= 75) { score += 0.5; reasons.push('Exercise mostly done') }
-    else if (planned > 0 && pct < 50) { score -= 0.5; reasons.push('Exercise incomplete') }
+    if (pct >= 100) score += 1
+    else if (pct >= 75) score += 0.5
+    else if (planned > 0 && pct < 50) score -= 0.5
   }
 
-  // Day reclassification
   if (office) {
     const meetings = parseInt(office.meetingsCount) || 0
     const blockers = (office.blockers || '').toLowerCase()
@@ -141,25 +135,16 @@ function computeLocalAnalysis(feedback, dayType) {
 
   score = Math.min(10, Math.max(1, score))
 
-  const studyPct = study
-    ? Math.round((parseFloat(study.actualHours) / Math.max(parseFloat(study.plannedHours), 0.1)) * 100)
-    : null
-
-  let analysis = ''
-  if (studyPct !== null) {
-    if (studyPct >= 100) analysis = 'Study target achieved. Maintain this consistency going forward.'
-    else if (studyPct >= 80) analysis = `Study was ${studyPct}% of target — close but not quite there.`
-    else analysis = `Study was only ${studyPct}% of target. Office workload was the likely factor.`
-  } else {
-    analysis = 'No study data available for today.'
-  }
+  let analysis = totalActualStudy >= 3
+    ? 'Good study session today. Maintain this consistency.'
+    : `Only ${totalActualStudy}h of study completed. Office workload likely impacted focus time.`
 
   let recommendation = 'Plan tomorrow\'s study blocks before office hours begin.'
   if (exercise && parseFloat(exercise.actualDuration) === 0) {
     recommendation = 'Prioritise even a short 20-min exercise session tomorrow morning.'
   }
 
-  return { score, reclassifiedType, reclassifyReason, analysis, recommendation, reasons }
+  return { score, reclassifiedType, reclassifyReason, analysis, recommendation, realityCheck: null }
 }
 
 async function callGemini(prompt) {
@@ -217,14 +202,14 @@ export default function InsightsScreen() {
     setTodayFeedback(feedback)
     setAllFeedback(allFb)
 
-    // Subject hours aggregation from all feedback
+    // Subject hours from all feedback
     const subjMap = {}
     allFb.forEach(f => {
-      if (f.study?.subjects?.length && f.study?.actualHours) {
-        const hrs = parseFloat(f.study.actualHours) || 0
-        const perSubject = hrs / f.study.subjects.length
-        f.study.subjects.forEach(s => {
-          subjMap[s] = (subjMap[s] || 0) + perSubject
+      if (f.studySessions?.length) {
+        f.studySessions.forEach(sess => {
+          if (sess.subjectName && sess.actualHours) {
+            subjMap[sess.subjectName] = (subjMap[sess.subjectName] || 0) + (parseFloat(sess.actualHours) || 0)
+          }
         })
       }
     })
@@ -234,8 +219,7 @@ export default function InsightsScreen() {
     const allTasks = await db.tasks.toArray()
     const pts = allTasks.filter(t => t.completed && t.date !== 'template')
       .reduce((sum, t) => sum + (t.points || 0), 0)
-    let redPts = 0
-    let redCount = 0
+    let redPts = 0, redCount = 0
     try {
       const reds = await db.redemptions?.toArray?.() || []
       redPts = reds.reduce((s, r) => s + r.cost, 0)
@@ -244,7 +228,7 @@ export default function InsightsScreen() {
     setTotalPoints(Math.max(0, pts - redPts))
     setRedeemedCount(redCount)
 
-    // Run analysis
+    buildMonthSummary(allFb)
     if (feedback) runAnalysis(feedback, dt, allFb)
   }
 
@@ -252,7 +236,6 @@ export default function InsightsScreen() {
     setLoading(true)
     const local = computeLocalAnalysis(feedback, dt)
 
-    // Try Gemini if key exists
     if (GEMINI_API_KEY) {
       const prompt = buildPrompt(feedback, dt, allFb)
       const raw = await callGemini(prompt)
@@ -262,7 +245,6 @@ export default function InsightsScreen() {
           setAnalysis({ ...parsed, _source: 'ai' })
           setAiMode(true)
           setLoading(false)
-          buildMonthSummary(allFb, allFb)
           return
         }
       }
@@ -270,67 +252,56 @@ export default function InsightsScreen() {
 
     setAnalysis({ ...local, _source: 'local' })
     setAiMode(false)
-    buildMonthSummary(allFb, allFb)
     setLoading(false)
   }
 
   function buildPrompt(feedback, dt, allFb) {
     const recentDays = allFb.slice(-7)
+    const totalStudy = feedback?.studySessions?.reduce((s, sess) => s + (parseFloat(sess.actualHours) || 0), 0) || 0
+    const subjects = feedback?.studySessions?.map(s => s.subjectName).filter(Boolean).join(', ') || 'None'
+
     return `You are a strict productivity coach for Asmita, a working professional preparing for government exams.
 
 Today's data:
 - Selected day type: ${dt}
-- Study: Planned ${feedback?.study?.plannedHours || 0}h, Actual ${feedback?.study?.actualHours || 0}h, Subjects: ${feedback?.study?.subjects?.join(', ') || 'None'}, Blockers: "${feedback?.study?.blockers || 'None'}", Satisfaction: ${feedback?.study?.satisfaction || 0}/10
-- Office: Hours ${feedback?.office?.actualHours || 0}, Meetings: ${feedback?.office?.meetingsCount || 0}, Work: ${feedback?.office?.workTypes?.join(', ') || 'N/A'}, Blockers: "${feedback?.office?.blockers || 'None'}", Satisfaction: ${feedback?.office?.satisfaction || 0}/10
-- Exercise: Planned ${feedback?.exercise?.plannedDuration || 0}h, Actual ${feedback?.exercise?.actualDuration || 0}h, Type: ${feedback?.exercise?.exerciseType || 'N/A'}, Feel: ${feedback?.exercise?.feel || 'N/A'}, Satisfaction: ${feedback?.exercise?.satisfaction || 0}/10
+- Total study hours: ${totalStudy}h, Subjects: ${subjects}
+- Office: Hours ${feedback?.office?.actualHours || 0}, Meetings: ${feedback?.office?.meetingsCount || 0}, Blockers: "${feedback?.office?.blockers || 'None'}"
+- Exercise: Planned ${feedback?.exercise?.plannedDuration || 0}h, Actual ${feedback?.exercise?.actualDuration || 0}h
 - Reflection: Overall ${feedback?.reflection?.overallSatisfaction || 0}/10, Achievement: "${feedback?.reflection?.biggestAchievement || ''}", Challenge: "${feedback?.reflection?.biggestChallenge || ''}"
+- Recent 7 days avg study: ${(recentDays.reduce((s, f) => s + (f.studySessions?.reduce((ss, sess) => ss + (parseFloat(sess.actualHours) || 0), 0) || 0), 0) / Math.max(recentDays.length, 1)).toFixed(1)}h
 
-Recent 7 days average study hours: ${(recentDays.reduce((s, f) => s + parseFloat(f?.study?.actualHours || 0), 0) / Math.max(recentDays.length, 1)).toFixed(1)}h
+Scoring: Base 5. Study 4h+=+2, 3h=+1.5, 2h=+0.5, 1h=-0.5, 0h=-1.5. Exercise 100%=+1, 75%=+0.5, <50%=-0.5.
+Reclassify to High Pressure if meetings>=5 or urgent/production/critical in blockers.
+Be strict, not rude. Reality check if study missed.
 
-Scoring rules:
-- Study: 100%+ = Excellent (+2), 80-99% = Good (+1.5), 60-79% = Average (+0.5), 40-59% = Below avg (-0.5), <40% = Poor (-1.5)
-- Exercise: 100%+ = +1, 75-99% = +0.5, <50% = -0.5
-- Base score: 5
-- Final range: 1-10
-
-Day reclassification: If meetings >= 5 or blockers contain urgent/production/critical words and user selected Normal Day, reclassify to High Pressure Day.
-
-Be strict but not rude. Do NOT praise excessively. Give a reality check if study was missed.
-
-Respond ONLY with valid JSON (no markdown, no preamble):
+Respond ONLY valid JSON:
 {
   "score": 7.5,
-  "reclassifiedType": "High Pressure Day",
-  "reclassifyReason": "6 meetings and urgent production issue",
-  "analysis": "Two-line max analysis of today's performance",
-  "recommendation": "One actionable recommendation for tomorrow",
-  "realityCheck": "Honest assessment if targets were missed (or null if met)"
+  "reclassifiedType": "Normal Day",
+  "reclassifyReason": null,
+  "analysis": "Two line max analysis",
+  "recommendation": "One actionable recommendation",
+  "realityCheck": null
 }`
   }
 
-  function buildMonthSummary(allFb, _) {
+  function buildMonthSummary(allFb) {
     const now = new Date()
     const monthFb = allFb.filter(f => {
-      const d = new Date(f.date + 'T00:00:00')
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+      const parts = f.date.split('-').map(Number)
+      return parts[1] - 1 === now.getMonth() && parts[0] === now.getFullYear()
     })
-
-    let plannedStudy = 0, actualStudy = 0
-    let plannedEx = 0, actualEx = 0
+    let plannedStudy = 0, actualStudy = 0, plannedEx = 0, actualEx = 0
     monthFb.forEach(f => {
-      plannedStudy += parseFloat(f?.study?.plannedHours || 0)
-      actualStudy += parseFloat(f?.study?.actualHours || 0)
+      actualStudy += f.studySessions?.reduce((s, sess) => s + (parseFloat(sess.actualHours) || 0), 0) || 0
       plannedEx += parseFloat(f?.exercise?.plannedDuration || 0)
       actualEx += parseFloat(f?.exercise?.actualDuration || 0)
     })
-
     const adherence = monthFb.length > 0
-      ? Math.round(((actualStudy / Math.max(plannedStudy, 1)) * 0.6 + (actualEx / Math.max(plannedEx, 1)) * 0.4) * 100)
+      ? Math.min(100, Math.round((actualStudy / Math.max(plannedStudy || actualStudy, 1)) * 100))
       : 0
-
     setMonthSummary({
-      adherence: Math.min(adherence, 100),
-      plannedStudy: plannedStudy.toFixed(1),
+      adherence,
       actualStudy: actualStudy.toFixed(1),
       plannedEx: plannedEx.toFixed(1),
       actualEx: actualEx.toFixed(1),
@@ -339,9 +310,7 @@ Respond ONLY with valid JSON (no markdown, no preamble):
   }
 
   const selectedColors = DAY_TYPE_COLORS[dayType]
-  const reclassifiedColors = analysis?.reclassifiedType
-    ? DAY_TYPE_COLORS[analysis.reclassifiedType]
-    : null
+  const reclassifiedColors = analysis?.reclassifiedType ? DAY_TYPE_COLORS[analysis.reclassifiedType] : null
   const showReclassification = analysis?.reclassifiedType && analysis.reclassifiedType !== dayType
 
   return (
@@ -359,19 +328,14 @@ Respond ONLY with valid JSON (no markdown, no preamble):
               background: '#ede9fe', border: '1px solid #a78bfa',
               borderRadius: '20px', padding: '4px 10px',
             }}>
-              <p style={{ fontSize: '11px', fontWeight: '700', color: '#5b21b6', fontFamily: 'Nunito, sans-serif' }}>
-                ✦ Gemini AI
-              </p>
+              <p style={{ fontSize: '11px', fontWeight: '700', color: '#5b21b6' }}>✦ Gemini AI</p>
             </div>
           )}
-          <button
-            onClick={loadAll}
-            style={{
-              background: '#f1f5f9', border: 'none', borderRadius: '10px',
-              width: '36px', height: '36px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
+          <button onClick={loadAll} style={{
+            background: '#f1f5f9', border: 'none', borderRadius: '10px',
+            width: '36px', height: '36px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
             <RefreshCw size={16} color='#64748b' />
           </button>
         </div>
@@ -383,10 +347,8 @@ Respond ONLY with valid JSON (no markdown, no preamble):
           padding: '28px', textAlign: 'center',
         }}>
           <p style={{ fontSize: '28px', marginBottom: '8px' }}>📋</p>
-          <p style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', fontFamily: 'Nunito, sans-serif' }}>
-            No feedback yet
-          </p>
-          <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px', fontFamily: 'Nunito, sans-serif' }}>
+          <p style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>No feedback yet</p>
+          <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
             Submit today's feedback to see AI analysis
           </p>
         </div>
@@ -396,39 +358,24 @@ Respond ONLY with valid JSON (no markdown, no preamble):
           padding: '28px', textAlign: 'center',
         }}>
           <p style={{ fontSize: '28px', marginBottom: '8px' }}>🤖</p>
-          <p style={{ fontSize: '14px', fontWeight: '700', color: '#64748b', fontFamily: 'Nunito, sans-serif' }}>
-            Analysing your day...
-          </p>
+          <p style={{ fontSize: '14px', fontWeight: '700', color: '#64748b' }}>Analysing your day...</p>
         </div>
       ) : analysis ? (
         <>
-          {/* Card 1: Day Reclassification */}
+          {/* Card 1: Reclassification */}
           {showReclassification && (
             <InsightCard icon={Brain} iconColor='#8b5cf6' title="AI Day Reclassification">
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{
-                  background: selectedColors.bg, border: `1px solid ${selectedColors.border}`,
-                  borderRadius: '8px', padding: '6px 12px',
-                }}>
-                  <p style={{ fontSize: '12px', fontWeight: '800', color: selectedColors.text, fontFamily: 'Nunito, sans-serif' }}>
-                    You: {dayType}
-                  </p>
+                <div style={{ background: selectedColors.bg, border: `1px solid ${selectedColors.border}`, borderRadius: '8px', padding: '6px 12px' }}>
+                  <p style={{ fontSize: '12px', fontWeight: '800', color: selectedColors.text }}>You: {dayType}</p>
                 </div>
                 <p style={{ fontSize: '16px', color: '#94a3b8' }}>→</p>
-                <div style={{
-                  background: reclassifiedColors.bg, border: `2px solid ${reclassifiedColors.border}`,
-                  borderRadius: '8px', padding: '6px 12px',
-                }}>
-                  <p style={{ fontSize: '12px', fontWeight: '800', color: reclassifiedColors.text, fontFamily: 'Nunito, sans-serif' }}>
-                    AI: {analysis.reclassifiedType}
-                  </p>
+                <div style={{ background: reclassifiedColors.bg, border: `2px solid ${reclassifiedColors.border}`, borderRadius: '8px', padding: '6px 12px' }}>
+                  <p style={{ fontSize: '12px', fontWeight: '800', color: reclassifiedColors.text }}>AI: {analysis.reclassifiedType}</p>
                 </div>
               </div>
               {analysis.reclassifyReason && (
-                <p style={{
-                  fontSize: '13px', color: '#64748b', marginTop: '10px',
-                  fontFamily: 'Nunito, sans-serif', lineHeight: '1.5',
-                }}>
+                <p style={{ fontSize: '13px', color: '#64748b', marginTop: '10px', lineHeight: '1.5' }}>
                   Reason: {analysis.reclassifyReason}
                 </p>
               )}
@@ -440,41 +387,30 @@ Respond ONLY with valid JSON (no markdown, no preamble):
             <ScoreBadge score={analysis.score || 5} />
           </InsightCard>
 
-          {/* Card 3: AI Daily Analysis */}
+          {/* Card 3: Analysis */}
           <InsightCard icon={TrendingUp} iconColor='#3b82f6' title="Daily Analysis">
-            <p style={{
-              fontSize: '14px', color: '#334155', lineHeight: '1.6',
-              fontFamily: 'Nunito, sans-serif', fontWeight: '600',
-            }}>
+            <p style={{ fontSize: '14px', color: '#334155', lineHeight: '1.6', fontWeight: '600' }}>
               {analysis.analysis}
             </p>
           </InsightCard>
 
           {/* Card 4: Reality Check */}
           {analysis.realityCheck && (
-            <InsightCard icon={Brain} iconColor='#ef4444' title="Reality Check"
-              bg='#fff5f5' border='#fecaca'>
-              <p style={{
-                fontSize: '14px', color: '#dc2626', lineHeight: '1.6',
-                fontFamily: 'Nunito, sans-serif', fontWeight: '600',
-              }}>
+            <InsightCard icon={Brain} iconColor='#ef4444' title="Reality Check" bg='#fff5f5' border='#fecaca'>
+              <p style={{ fontSize: '14px', color: '#dc2626', lineHeight: '1.6', fontWeight: '600' }}>
                 {analysis.realityCheck}
               </p>
             </InsightCard>
           )}
 
-          {/* Card 4b: Recommendation */}
-          <InsightCard icon={Brain} iconColor='#22c55e' title="AI Recommendation"
-            bg='#f0fdf4' border='#bbf7d0'>
-            <p style={{
-              fontSize: '14px', color: '#15803d', lineHeight: '1.6',
-              fontFamily: 'Nunito, sans-serif', fontWeight: '600',
-            }}>
+          {/* Card 5: Recommendation */}
+          <InsightCard icon={Brain} iconColor='#22c55e' title="AI Recommendation" bg='#f0fdf4' border='#bbf7d0'>
+            <p style={{ fontSize: '14px', color: '#15803d', lineHeight: '1.6', fontWeight: '600' }}>
               {analysis.recommendation}
             </p>
           </InsightCard>
 
-          {/* Card 5: Subject Analysis */}
+          {/* Card 6: Subject Analysis */}
           {subjectData.length > 0 && (
             <InsightCard icon={BookOpen} iconColor='#3b82f6' title="Subject Analysis">
               {subjectData.map(([subject, hrs]) => (
@@ -482,33 +418,16 @@ Respond ONLY with valid JSON (no markdown, no preamble):
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '8px 0', borderBottom: '1px solid #f1f5f9',
                 }}>
-                  <p style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a', fontFamily: 'Nunito, sans-serif' }}>
-                    {subject}
-                  </p>
-                  <p style={{ fontSize: '13px', fontWeight: '700', color: '#3b82f6', fontFamily: 'Nunito, sans-serif' }}>
-                    {hrs.toFixed(1)} hrs
-                  </p>
+                  <p style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{subject}</p>
+                  <p style={{ fontSize: '13px', fontWeight: '700', color: '#3b82f6' }}>{hrs.toFixed(1)} hrs</p>
                 </div>
               ))}
             </InsightCard>
           )}
 
-          {/* Card 6: Streak Analysis */}
+          {/* Card 7: Streak Heatmap */}
           <InsightCard icon={Dumbbell} iconColor='#22c55e' title="Streak Analysis">
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
-              {[
-                {
-                  label: 'Study', value: allFeedback.filter((_, i, a) => {
-                    const sorted = [...a].sort((x, y) => x.date < y.date ? 1 : -1)
-                    const idx = sorted.findIndex(f => f.date === allFeedback[i]?.date)
-                    return idx !== undefined
-                  }).length, color: '#3b82f6', bg: '#dbeafe',
-                },
-              ].slice(0, 0).map(() => null) /* just use the heatmap below */}
-            </div>
-            <p style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', fontFamily: 'Nunito, sans-serif' }}>
-              Last 28 days
-            </p>
+            <p style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px' }}>Last 28 days</p>
             <MiniHeatmap feedbackList={allFeedback} />
             <div style={{ display: 'flex', gap: '16px', marginTop: '10px', flexWrap: 'wrap' }}>
               {[
@@ -519,15 +438,13 @@ Respond ONLY with valid JSON (no markdown, no preamble):
               ].map(l => (
                 <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: l.color }} />
-                  <p style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', fontFamily: 'Nunito, sans-serif' }}>
-                    {l.label}
-                  </p>
+                  <p style={{ fontSize: '10px', color: '#64748b', fontWeight: '600' }}>{l.label}</p>
                 </div>
               ))}
             </div>
           </InsightCard>
 
-          {/* Card 7: Monthly Summary */}
+          {/* Card 8: Monthly Summary */}
           {monthSummary && (
             <InsightCard icon={BarChart2} iconColor='#8b5cf6' title="Monthly Summary">
               <div style={{
@@ -535,41 +452,31 @@ Respond ONLY with valid JSON (no markdown, no preamble):
                 display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px',
               }}>
                 {[
-                  { label: 'Adherence', value: `${monthSummary.adherence}%` },
                   { label: 'Days Logged', value: monthSummary.daysLogged },
-                  { label: 'Study: Planned', value: `${monthSummary.plannedStudy}h` },
-                  { label: 'Study: Actual', value: `${monthSummary.actualStudy}h` },
-                  { label: 'Exercise: Planned', value: `${monthSummary.plannedEx}h` },
-                  { label: 'Exercise: Actual', value: `${monthSummary.actualEx}h` },
+                  { label: 'Adherence', value: `${monthSummary.adherence}%` },
+                  { label: 'Study Hours', value: `${monthSummary.actualStudy}h` },
+                  { label: 'Exercise Planned', value: `${monthSummary.plannedEx}h` },
+                  { label: 'Exercise Done', value: `${monthSummary.actualEx}h` },
                   { label: 'Total Points', value: totalPoints.toLocaleString() },
                   { label: 'Rewards Redeemed', value: redeemedCount },
                 ].map(item => (
                   <div key={item.label}>
-                    <p style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', fontFamily: 'Nunito, sans-serif' }}>
-                      {item.label}
-                    </p>
-                    <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', fontFamily: 'Nunito, sans-serif' }}>
-                      {item.value}
-                    </p>
+                    <p style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8' }}>{item.label}</p>
+                    <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a' }}>{item.value}</p>
                   </div>
                 ))}
               </div>
             </InsightCard>
           )}
 
-          {/* Card 8: AI Monthly Review */}
-          {!aiMode && (
-            <InsightCard icon={Brain} iconColor='#8b5cf6' title="Monthly Review">
-              <p style={{
-                fontSize: '14px', color: '#334155', lineHeight: '1.6',
-                fontFamily: 'Nunito, sans-serif', fontWeight: '600',
-              }}>
-                {monthSummary?.adherence >= 80
-                  ? 'Strong overall adherence this month. Keep the momentum going into next month.'
-                  : 'Study execution dropped on high-pressure workdays. Plan buffer time for office-heavy days.'}
-              </p>
-            </InsightCard>
-          )}
+          {/* Card 9: Monthly Review */}
+          <InsightCard icon={Brain} iconColor='#8b5cf6' title="Monthly Review">
+            <p style={{ fontSize: '14px', color: '#334155', lineHeight: '1.6', fontWeight: '600' }}>
+              {monthSummary?.adherence >= 80
+                ? 'Strong overall adherence this month. Keep the momentum going.'
+                : 'Study execution dropped on high-pressure workdays. Plan buffer time for office-heavy days.'}
+            </p>
+          </InsightCard>
         </>
       ) : null}
     </div>
