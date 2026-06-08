@@ -1,18 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Clock, Trash2 } from 'lucide-react'
+import { Plus, Clock, Trash2, Pencil } from 'lucide-react'
 import { db } from '../db'
 
 const DAY_TYPES = ['Normal Day', 'High Pressure Day', 'Travel Day', 'Weekend Day']
-
 const DAY_TYPE_COLORS = {
-  'Normal Day':      { bg: '#fef9c3', text: '#854d0e', border: '#fde047' },
+  'Normal Day':        { bg: '#fef9c3', text: '#854d0e', border: '#fde047' },
   'High Pressure Day': { bg: '#ffedd5', text: '#9a3412', border: '#fb923c' },
-  'Travel Day':      { bg: '#ede9fe', text: '#5b21b6', border: '#a78bfa' },
-  'Weekend Day':     { bg: '#dcfce7', text: '#14532d', border: '#4ade80' },
+  'Travel Day':        { bg: '#ede9fe', text: '#5b21b6', border: '#a78bfa' },
+  'Weekend Day':       { bg: '#dcfce7', text: '#14532d', border: '#4ade80' },
 }
-
 const PRIORITY_COLORS = { High: '#ef4444', Medium: '#f97316', Low: '#22c55e' }
-
 const TAG_COLORS = {
   Study:    { bg: '#dbeafe', text: '#1e40af' },
   Office:   { bg: '#e0e7ff', text: '#3730a3' },
@@ -27,27 +24,23 @@ function localDateString(date = new Date()) {
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
 }
-
 function addDaysToStr(dateStr, days) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const date = new Date(y, m - 1, d)
   date.setDate(date.getDate() + days)
   return localDateString(date)
 }
-
 function getDefaultDayType(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dow = new Date(y, m - 1, d).getDay()
   return dow === 0 || dow === 6 ? 'Weekend Day' : 'Normal Day'
 }
-
 function formatDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 }
-
 function formatDuration(start, end) {
   if (!start || !end) return null
   const [sh, sm] = start.split(':').map(Number)
@@ -64,6 +57,7 @@ export default function HomeScreen({ onPointsUpdate }) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [tasks, setTasks] = useState([])
   const [showAddTask, setShowAddTask] = useState(false)
+  const [editTask, setEditTask] = useState(null)
   const [subjectsList, setSubjectsList] = useState([])
   const [topicsList, setTopicsList] = useState([])
   const [newTask, setNewTask] = useState({
@@ -71,7 +65,6 @@ export default function HomeScreen({ onPointsUpdate }) {
     priority: 'Medium', points: 20, tag: 'Study',
     subjectId: null, subjectName: '', topicId: null, topicName: '',
   })
-
   const swipeRef = useRef({ startX: 0, startY: 0, active: false })
 
   useEffect(() => { loadDayData() }, [currentDate])
@@ -81,27 +74,15 @@ export default function HomeScreen({ onPointsUpdate }) {
     const dayRecord = await db.days.get(currentDate)
     const dt = dayRecord?.dayType || getDefaultDayType(currentDate)
     setDayType(dt)
-
-    // Load actual tasks for this date
     let dayTasks = await db.tasks.where('date').equals(currentDate).toArray()
-
-    // ── Template → Home connection ──────────────────────────────
-    // Agar is date pe koi task nahi hai, template se load karo
     if (dayTasks.length === 0) {
-      const templateTasks = await db.tasks
-        .where('date').equals('template')
-        .toArray()
+      const templateTasks = await db.tasks.where('date').equals('template').toArray()
       const forThisDay = templateTasks.filter(t => t.dayTypeTemplate === dt)
       dayTasks = forThisDay.map(t => ({
-        ...t,
-        id: undefined, // naya id milega
-        date: currentDate,
-        completed: false,
-        feedbackDone: false,
-        fromTemplate: true, // sirf display ke liye
+        ...t, id: undefined, date: currentDate,
+        completed: false, feedbackDone: false, fromTemplate: true,
       }))
     }
-
     setTasks(dayTasks)
   }
 
@@ -119,91 +100,65 @@ export default function HomeScreen({ onPointsUpdate }) {
     setDayType(type)
     setShowDropdown(false)
     await db.days.put({ date: currentDate, dayType: type })
-    // Day type change hone pe template reload karo
     loadDayData()
   }
 
   async function handleAddTask() {
     if (!newTask.title.trim()) return
-    await db.tasks.add({
-      ...newTask,
-      points: Number(newTask.points),
-      date: currentDate,
-      completed: false,
-      feedbackDone: false,
-    })
-    setNewTask({
-      title: '', description: '', startTime: '', endTime: '',
-      priority: 'Medium', points: 20, tag: 'Study',
-      subjectId: null, subjectName: '', topicId: null, topicName: '',
-    })
+    const taskData = { ...newTask, points: Number(newTask.points), date: currentDate, completed: false, feedbackDone: false }
+    const id = await db.tasks.add(taskData)
+    setNewTask({ title: '', description: '', startTime: '', endTime: '', priority: 'Medium', points: 20, tag: 'Study', subjectId: null, subjectName: '', topicId: null, topicName: '' })
     setShowAddTask(false)
     loadDayData()
-    onPointsUpdate?.()
+    onPointsUpdate?.('tasks', { ...taskData, id })
+  }
+
+  async function handleEditTask() {
+    if (!editTask?.title?.trim()) return
+    const updated = {
+      title: editTask.title, description: editTask.description,
+      startTime: editTask.startTime, endTime: editTask.endTime,
+      priority: editTask.priority, points: Number(editTask.points),
+      tag: editTask.tag, subjectId: editTask.subjectId || null,
+      subjectName: editTask.subjectName || '', topicId: editTask.topicId || null,
+      topicName: editTask.topicName || '',
+    }
+    await db.tasks.update(editTask.id, updated)
+    setEditTask(null)
+    loadDayData()
+    onPointsUpdate?.('tasks', { ...editTask, ...updated })
   }
 
   async function handleQuickComplete(task) {
-    // Agar template task hai, pehle DB mein save karo
     if (task.fromTemplate) {
       const { fromTemplate, id, ...taskData } = task
       const newId = await db.tasks.add({ ...taskData, completed: true })
-      await onPointsUpdate?.('tasks', { ...taskData, id: newId, completed: true })
+      onPointsUpdate?.('tasks', { ...taskData, id: newId, completed: true })
     } else {
       await db.tasks.update(task.id, { completed: true })
-      onPointsUpdate?.()
+      onPointsUpdate?.('tasks', { ...task, completed: true })
     }
     loadDayData()
   }
 
-  async function handleUndoComplete(taskId) {
-    await db.tasks.update(taskId, { completed: false })
+  async function handleUndoComplete(task) {
+    await db.tasks.update(task.id, { completed: false })
     loadDayData()
-    onPointsUpdate?.()
+    onPointsUpdate?.('tasks', { ...task, completed: false })
   }
 
- async function handleDeleteTask(task) {
-  if (task.fromTemplate) {
-    setTasks(prev => prev.filter(t => t !== task))
-    return
+  async function handleDeleteTask(task) {
+    if (task.fromTemplate) {
+      setTasks(prev => prev.filter(t => t !== task))
+      return
+    }
+    await db.tasks.delete(task.id)
+    loadDayData()
+    onPointsUpdate?.('_delete_tasks', { id: task.id })
   }
-  // Local se delete
-  await db.tasks.delete(task.id)
-  loadDayData()
-  // Cloud pe soft delete — yahi missing tha
-  onPointsUpdate?.('_delete_tasks', { id: task.id })
-}
-
-<button onClick={() => setEditTask({ ...task })}
-  style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: '#f0f9ff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-  ✏️
-</button>
-
-const [editTask, setEditTask] = useState(null)
-
-async function handleEditTask() {
-  if (!editTask?.title?.trim()) return
-  await db.tasks.update(editTask.id, {
-    title: editTask.title,
-    description: editTask.description,
-    startTime: editTask.startTime,
-    endTime: editTask.endTime,
-    priority: editTask.priority,
-    points: Number(editTask.points),
-    tag: editTask.tag,
-    subjectId: editTask.subjectId || null,
-    subjectName: editTask.subjectName || '',
-    topicId: editTask.topicId || null,
-    topicName: editTask.topicName || '',
-  })
-  setEditTask(null)
-  loadDayData()
-  onPointsUpdate?.()
-}
-
 
   function goToPrev() { setCurrentDate(d => addDaysToStr(d, -1)) }
   function goToNext() { setCurrentDate(d => addDaysToStr(d, 1)) }
-
   function onTouchStart(e) {
     swipeRef.current = { startX: e.touches[0].clientX, startY: e.touches[0].clientY, active: true }
   }
@@ -239,11 +194,9 @@ async function handleEditTask() {
                 Back to Today
               </button>
             )}
-            <p style={{ fontSize: '10px', fontWeight: '600', color: colors.text, opacity: 0.5, marginTop: '2px' }}>← swipe or tap to navigate →</p>
           </div>
           <button onClick={goToNext} style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.08)', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text, flexShrink: 0 }}>›</button>
         </div>
-
         <div style={{ position: 'relative', display: 'inline-block' }}>
           <button onClick={() => setShowDropdown(!showDropdown)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.75)', border: `1.5px solid ${colors.border}`, borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', fontWeight: '800', fontSize: '14px', color: colors.text, fontFamily: 'Nunito, sans-serif' }}>
             {dayType} <span style={{ fontSize: '11px' }}>▾</span>
@@ -282,9 +235,7 @@ async function handleEditTask() {
           {isToday ? "Today's Schedule" : `${formatDate(currentDate).split(',')[0]}'s Schedule`}
         </p>
         {tasks.some(t => t.fromTemplate) && (
-          <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', background: '#f1f5f9', borderRadius: '20px', padding: '3px 10px' }}>
-            From template
-          </span>
+          <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', background: '#f1f5f9', borderRadius: '20px', padding: '3px 10px' }}>From template</span>
         )}
       </div>
 
@@ -315,14 +266,20 @@ async function handleEditTask() {
                 <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8' }}>{task.points} 🏆</span>
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
-              <button onClick={() => task.completed ? handleUndoComplete(task.id) : handleQuickComplete(task)}
-                style={{ width: '34px', height: '34px', borderRadius: '50%', border: `2px solid ${task.completed ? '#4ade80' : '#e2e8f0'}`, background: task.completed ? '#4ade80' : '#fff', color: task.completed ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', fontWeight: '900' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexShrink: 0 }}>
+              <button onClick={() => task.completed ? handleUndoComplete(task) : handleQuickComplete(task)}
+                style={{ width: '32px', height: '32px', borderRadius: '50%', border: `2px solid ${task.completed ? '#4ade80' : '#e2e8f0'}`, background: task.completed ? '#4ade80' : '#fff', color: task.completed ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '900' }}>
                 {task.completed ? '✓' : ''}
               </button>
+              {!task.fromTemplate && (
+                <button onClick={() => setEditTask({ ...task })}
+                  style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: '#f0f9ff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Pencil size={13} color='#3b82f6' />
+                </button>
+              )}
               <button onClick={() => handleDeleteTask(task)}
-                style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: '#fff5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Trash2 size={14} color='#ef4444' />
+                style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: '#fff5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Trash2 size={13} color='#ef4444' />
               </button>
             </div>
           </div>
@@ -336,7 +293,6 @@ async function handleEditTask() {
           <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '20px', width: '100%', maxWidth: '414px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ width: '36px', height: '4px', background: '#e2e8f0', borderRadius: '99px', margin: '0 auto 18px' }} />
             <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '16px' }}>Add Task</p>
-
             {[
               { label: 'Title *', key: 'title', type: 'text', placeholder: 'e.g. DSA Practice' },
               { label: 'Description', key: 'description', type: 'text', placeholder: 'Optional' },
@@ -351,40 +307,27 @@ async function handleEditTask() {
                   style={{ width: '100%', padding: '11px 13px', borderRadius: '11px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', boxSizing: 'border-box', background: '#f8fafc' }} />
               </div>
             ))}
-
             <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priority</p>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
               {['High', 'Medium', 'Low'].map(p => (
                 <button key={p} onClick={() => setNewTask({ ...newTask, priority: p })} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: `2px solid ${newTask.priority === p ? PRIORITY_COLORS[p] : '#e2e8f0'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '13px', fontWeight: '800', background: newTask.priority === p ? PRIORITY_COLORS[p] : '#fff', color: newTask.priority === p ? '#fff' : '#94a3b8' }}>{p}</button>
               ))}
             </div>
-
+            <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tag</p>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: newTask.tag === 'Study' ? '14px' : '22px' }}>
               {['Study', 'Office', 'Exercise', 'Personal', 'Other'].map(tag => (
-                <button key={tag} onClick={() => {
-                  setNewTask({ ...newTask, tag, subjectId: null, subjectName: '', topicId: null, topicName: '' })
-                  setTopicsList([])
-                }} style={{ padding: '7px 14px', borderRadius: '20px', border: `2px solid ${newTask.tag === tag ? TAG_COLORS[tag].text : 'transparent'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '12px', fontWeight: '700', background: newTask.tag === tag ? TAG_COLORS[tag].bg : '#f1f5f9', color: newTask.tag === tag ? TAG_COLORS[tag].text : '#94a3b8' }}>{tag}</button>
+                <button key={tag} onClick={() => { setNewTask({ ...newTask, tag, subjectId: null, subjectName: '', topicId: null, topicName: '' }); setTopicsList([]) }} style={{ padding: '7px 14px', borderRadius: '20px', border: `2px solid ${newTask.tag === tag ? TAG_COLORS[tag].text : 'transparent'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '12px', fontWeight: '700', background: newTask.tag === tag ? TAG_COLORS[tag].bg : '#f1f5f9', color: newTask.tag === tag ? TAG_COLORS[tag].text : '#94a3b8' }}>{tag}</button>
               ))}
             </div>
-
             {newTask.tag === 'Study' && (
               <div style={{ marginBottom: '22px' }}>
                 <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Subject (optional)</p>
                 {subjectsList.length === 0 ? (
-                  <p style={{ fontSize: '12px', color: '#94a3b8' }}>No subjects yet — add from Subjects screen first.</p>
+                  <p style={{ fontSize: '12px', color: '#94a3b8' }}>No subjects — add from Subjects screen first.</p>
                 ) : (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
                     {subjectsList.map(sub => (
-                      <button key={sub.id} onClick={() => {
-                        if (newTask.subjectId === sub.id) {
-                          setNewTask({ ...newTask, subjectId: null, subjectName: '', topicId: null, topicName: '' })
-                          setTopicsList([])
-                        } else {
-                          setNewTask({ ...newTask, subjectId: sub.id, subjectName: sub.name, topicId: null, topicName: '' })
-                          loadTopicsForSubject(sub.id)
-                        }
-                      }} style={{ padding: '7px 14px', borderRadius: '20px', border: `2px solid ${newTask.subjectId === sub.id ? '#3b82f6' : 'transparent'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '12px', fontWeight: '700', background: newTask.subjectId === sub.id ? '#dbeafe' : '#f1f5f9', color: newTask.subjectId === sub.id ? '#1e40af' : '#94a3b8' }}>{sub.name}</button>
+                      <button key={sub.id} onClick={() => { if (newTask.subjectId === sub.id) { setNewTask({ ...newTask, subjectId: null, subjectName: '', topicId: null, topicName: '' }); setTopicsList([]) } else { setNewTask({ ...newTask, subjectId: sub.id, subjectName: sub.name, topicId: null, topicName: '' }); loadTopicsForSubject(sub.id) } }} style={{ padding: '7px 14px', borderRadius: '20px', border: `2px solid ${newTask.subjectId === sub.id ? '#3b82f6' : 'transparent'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '12px', fontWeight: '700', background: newTask.subjectId === sub.id ? '#dbeafe' : '#f1f5f9', color: newTask.subjectId === sub.id ? '#1e40af' : '#94a3b8' }}>{sub.name}</button>
                     ))}
                   </div>
                 )}
@@ -400,7 +343,6 @@ async function handleEditTask() {
                 )}
               </div>
             )}
-
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowAddTask(false)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
               <button onClick={handleAddTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Add Task</button>
@@ -408,38 +350,40 @@ async function handleEditTask() {
           </div>
         </div>
       )}
+
+      {/* Edit Task Modal */}
       {editTask && (
-  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-    onClick={(e) => { if (e.target === e.currentTarget) setEditTask(null) }}>
-    <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '20px', width: '100%', maxWidth: '414px', maxHeight: '90vh', overflowY: 'auto' }}>
-      <div style={{ width: '36px', height: '4px', background: '#e2e8f0', borderRadius: '99px', margin: '0 auto 18px' }} />
-      <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '16px' }}>Edit Task</p>
-      {[
-        { label: 'Title *', key: 'title', type: 'text' },
-        { label: 'Description', key: 'description', type: 'text' },
-        { label: 'Start Time', key: 'startTime', type: 'time' },
-        { label: 'End Time', key: 'endTime', type: 'time' },
-        { label: 'Points', key: 'points', type: 'number' },
-      ].map(field => (
-        <div key={field.key} style={{ marginBottom: '12px' }}>
-          <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{field.label}</p>
-          <input type={field.type} value={editTask[field.key] || ''} onChange={e => setEditTask({ ...editTask, [field.key]: e.target.value })}
-            style={{ width: '100%', padding: '11px 13px', borderRadius: '11px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', boxSizing: 'border-box', background: '#f8fafc' }} />
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setEditTask(null) }}>
+          <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '20px', width: '100%', maxWidth: '414px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ width: '36px', height: '4px', background: '#e2e8f0', borderRadius: '99px', margin: '0 auto 18px' }} />
+            <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '16px' }}>Edit Task</p>
+            {[
+              { label: 'Title *', key: 'title', type: 'text' },
+              { label: 'Description', key: 'description', type: 'text' },
+              { label: 'Start Time', key: 'startTime', type: 'time' },
+              { label: 'End Time', key: 'endTime', type: 'time' },
+              { label: 'Points', key: 'points', type: 'number' },
+            ].map(field => (
+              <div key={field.key} style={{ marginBottom: '12px' }}>
+                <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{field.label}</p>
+                <input type={field.type} value={editTask[field.key] || ''} onChange={e => setEditTask({ ...editTask, [field.key]: e.target.value })}
+                  style={{ width: '100%', padding: '11px 13px', borderRadius: '11px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', boxSizing: 'border-box', background: '#f8fafc' }} />
+              </div>
+            ))}
+            <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priority</p>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+              {['High', 'Medium', 'Low'].map(p => (
+                <button key={p} onClick={() => setEditTask({ ...editTask, priority: p })} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: `2px solid ${editTask.priority === p ? PRIORITY_COLORS[p] : '#e2e8f0'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '13px', fontWeight: '800', background: editTask.priority === p ? PRIORITY_COLORS[p] : '#fff', color: editTask.priority === p ? '#fff' : '#94a3b8' }}>{p}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setEditTask(null)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
+              <button onClick={handleEditTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Save Changes</button>
+            </div>
+          </div>
         </div>
-      ))}
-      <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priority</p>
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {['High', 'Medium', 'Low'].map(p => (
-          <button key={p} onClick={() => setEditTask({ ...editTask, priority: p })} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: `2px solid ${editTask.priority === p ? PRIORITY_COLORS[p] : '#e2e8f0'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '13px', fontWeight: '800', background: editTask.priority === p ? PRIORITY_COLORS[p] : '#fff', color: editTask.priority === p ? '#fff' : '#94a3b8' }}>{p}</button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <button onClick={() => setEditTask(null)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
-        <button onClick={handleEditTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Save Changes</button>
-      </div>
-    </div>
-  </div>
-)}
+      )}
 
       {/* FAB */}
       <button onClick={() => setShowAddTask(true)} style={{ position: 'fixed', bottom: '84px', right: 'calc(50% - 191px)', width: '54px', height: '54px', borderRadius: '50%', background: '#0f172a', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.35)', zIndex: 100 }}>
