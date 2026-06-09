@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Clock, Trash2, Pencil } from 'lucide-react'
+import { Plus, Clock, Trash2 } from 'lucide-react'
 import { db } from '../db'
 
 const DAY_TYPES = ['Normal Day', 'High Pressure Day', 'Travel Day', 'Weekend Day']
@@ -55,9 +55,10 @@ export default function HomeScreen({ onPointsUpdate }) {
   const [currentDate, setCurrentDate] = useState(todayStr)
   const [dayType, setDayType] = useState(getDefaultDayType(todayStr))
   const [showDropdown, setShowDropdown] = useState(false)
-  const [tasks, setTasks] = useState([])
+  const [templateTasks, setTemplateTasks] = useState([]) // always from template
+  const [extraTasks, setExtraTasks] = useState([])       // manually added for this date
+  const [completedTemplateIds, setCompletedTemplateIds] = useState(new Set()) // template ids that are done
   const [showAddTask, setShowAddTask] = useState(false)
-  const [editTask, setEditTask] = useState(null)
   const [subjectsList, setSubjectsList] = useState([])
   const [topicsList, setTopicsList] = useState([])
   const [newTask, setNewTask] = useState({
@@ -74,16 +75,26 @@ export default function HomeScreen({ onPointsUpdate }) {
     const dayRecord = await db.days.get(currentDate)
     const dt = dayRecord?.dayType || getDefaultDayType(currentDate)
     setDayType(dt)
-    let dayTasks = await db.tasks.where('date').equals(currentDate).toArray()
-    if (dayTasks.length === 0) {
-      const templateTasks = await db.tasks.where('date').equals('template').toArray()
-      const forThisDay = templateTasks.filter(t => t.dayTypeTemplate === dt)
-      dayTasks = forThisDay.map(t => ({
-        ...t, id: undefined, date: currentDate,
-        completed: false, feedbackDone: false, fromTemplate: true,
-      }))
-    }
-    setTasks(dayTasks)
+
+    // 1. Template tasks for this day type — ALWAYS show all
+    const allTemplates = await db.tasks.where('date').equals('template').toArray()
+    const todayTemplates = allTemplates.filter(t => t.dayTypeTemplate === dt)
+    setTemplateTasks(todayTemplates)
+
+    // 2. Saved completions for template tasks on this date
+    const savedTasks = await db.tasks.where('date').equals(currentDate).toArray()
+    
+    // Template completions — tasks saved with fromTemplateId
+const doneTemplateIds = new Set(
+      savedTasks
+        .filter(t => t.fromTemplateId !== null && t.fromTemplateId !== undefined && t.completed)
+        .map(t => t.fromTemplateId)
+    )
+    setCompletedTemplateIds(doneTemplateIds)
+
+    // 3. Extra tasks — manually added (no fromTemplateId)
+    const extra = savedTasks.filter(t => t.fromTemplateId === null || t.fromTemplateId === undefined)
+    setExtraTasks(extra)
   }
 
   async function loadSubjects() {
@@ -103,58 +114,63 @@ export default function HomeScreen({ onPointsUpdate }) {
     loadDayData()
   }
 
-  async function handleAddTask() {
-    if (!newTask.title.trim()) return
-    const taskData = { ...newTask, points: Number(newTask.points), date: currentDate, completed: false, feedbackDone: false }
-    const id = await db.tasks.add(taskData)
-    setNewTask({ title: '', description: '', startTime: '', endTime: '', priority: 'Medium', points: 20, tag: 'Study', subjectId: null, subjectName: '', topicId: null, topicName: '' })
-    setShowAddTask(false)
-    loadDayData()
-    onPointsUpdate?.('tasks', { ...taskData, id })
-  }
-
-  async function handleEditTask() {
-    if (!editTask?.title?.trim()) return
-    const updated = {
-      title: editTask.title, description: editTask.description,
-      startTime: editTask.startTime, endTime: editTask.endTime,
-      priority: editTask.priority, points: Number(editTask.points),
-      tag: editTask.tag, subjectId: editTask.subjectId || null,
-      subjectName: editTask.subjectName || '', topicId: editTask.topicId || null,
-      topicName: editTask.topicName || '',
-    }
-    await db.tasks.update(editTask.id, updated)
-    setEditTask(null)
-    loadDayData()
-    onPointsUpdate?.('tasks', { ...editTask, ...updated })
-  }
-
-  async function handleQuickComplete(task) {
-    if (task.fromTemplate) {
-      const { fromTemplate, id, ...taskData } = task
-      const newId = await db.tasks.add({ ...taskData, completed: true })
-      onPointsUpdate?.('tasks', { ...taskData, id: newId, completed: true })
+  // Toggle template task complete/incomplete
+  async function handleToggleTemplate(templateTask) {
+    const isCompleted = completedTemplateIds.has(templateTask.id)
+    
+    if (isCompleted) {
+      // Undo — delete the saved completion record
+      const savedTasks = await db.tasks.where('date').equals(currentDate).toArray()
+      const saved = savedTasks.find(t => t.fromTemplateId === templateTask.id)
+      if (saved) await db.tasks.delete(saved.id)
     } else {
-      await db.tasks.update(task.id, { completed: true })
-      onPointsUpdate?.('tasks', { ...task, completed: true })
+      // Complete — save a record
+      await db.tasks.add({
+        ...templateTask,
+        id: undefined,
+        date: currentDate,
+        fromTemplateId: templateTask.id,
+        completed: true,
+        feedbackDone: false,
+      })
     }
     loadDayData()
+    onPointsUpdate?.()
   }
 
-  async function handleUndoComplete(task) {
-    await db.tasks.update(task.id, { completed: false })
+  // Toggle extra task complete/incomplete
+  async function handleToggleExtra(task) {
+    await db.tasks.update(task.id, { completed: !task.completed })
     loadDayData()
-    onPointsUpdate?.('tasks', { ...task, completed: false })
+    onPointsUpdate?.()
   }
 
-  async function handleDeleteTask(task) {
-    if (task.fromTemplate) {
-      setTasks(prev => prev.filter(t => t !== task))
-      return
-    }
+  // Delete extra task
+  async function handleDeleteExtra(task) {
     await db.tasks.delete(task.id)
     loadDayData()
-    onPointsUpdate?.('_delete_tasks', { id: task.id })
+    onPointsUpdate?.()
+  }
+
+  // Add new extra task
+  async function handleAddTask() {
+    if (!newTask.title.trim()) return
+    await db.tasks.add({
+      ...newTask,
+      points: Number(newTask.points),
+      date: currentDate,
+      completed: false,
+      feedbackDone: false,
+      fromTemplateId: null,
+    })
+    setNewTask({
+      title: '', description: '', startTime: '', endTime: '',
+      priority: 'Medium', points: 20, tag: 'Study',
+      subjectId: null, subjectName: '', topicId: null, topicName: '',
+    })
+    setShowAddTask(false)
+    loadDayData()
+    onPointsUpdate?.()
   }
 
   function goToPrev() { setCurrentDate(d => addDaysToStr(d, -1)) }
@@ -172,8 +188,10 @@ export default function HomeScreen({ onPointsUpdate }) {
     else if (dx < -50) goToPrev()
   }
 
-  const completedCount = tasks.filter(t => t.completed).length
-  const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0
+  // Progress = template tasks + extra tasks
+  const totalTasks = templateTasks.length + extraTasks.length
+  const completedTasks = completedTemplateIds.size + extraTasks.filter(t => t.completed).length
+  const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
   const colors = DAY_TYPE_COLORS[dayType]
   const circumference = 2 * Math.PI * 36
   const strokeDash = (progress / 100) * circumference
@@ -182,20 +200,20 @@ export default function HomeScreen({ onPointsUpdate }) {
   return (
     <div style={{ padding: '16px', paddingBottom: '90px', fontFamily: 'Nunito, sans-serif' }}>
 
-      {/* Header card */}
+      {/* Header */}
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{ background: colors.bg, border: `1.5px solid ${colors.border}`, borderRadius: '20px', padding: '16px', marginBottom: '14px', userSelect: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <button onClick={goToPrev} style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.08)', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text, flexShrink: 0 }}>‹</button>
+          <button onClick={goToPrev} style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.08)', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text }}>‹</button>
           <div style={{ textAlign: 'center', flex: 1, padding: '0 8px' }}>
-            <p style={{ fontSize: '13px', fontWeight: '800', color: colors.text, lineHeight: 1.3 }}>{formatDate(currentDate)}</p>
+            <p style={{ fontSize: '13px', fontWeight: '800', color: colors.text }}>{formatDate(currentDate)}</p>
             {!isToday && (
               <button onClick={() => setCurrentDate(todayStr)} style={{ marginTop: '4px', fontSize: '11px', fontWeight: '700', color: colors.text, opacity: 0.7, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Nunito, sans-serif' }}>
                 Back to Today
               </button>
             )}
           </div>
-          <button onClick={goToNext} style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.08)', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text, flexShrink: 0 }}>›</button>
+          <button onClick={goToNext} style={{ width: '34px', height: '34px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.08)', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text }}>›</button>
         </div>
         <div style={{ position: 'relative', display: 'inline-block' }}>
           <button onClick={() => setShowDropdown(!showDropdown)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.75)', border: `1.5px solid ${colors.border}`, borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', fontWeight: '800', fontSize: '14px', color: colors.text, fontFamily: 'Nunito, sans-serif' }}>
@@ -225,38 +243,90 @@ export default function HomeScreen({ onPointsUpdate }) {
         </svg>
         <div>
           <p style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{isToday ? "Today's Progress" : "Day's Progress"}</p>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>{completedCount} of {tasks.length} tasks done</p>
+          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>{completedTasks} of {totalTasks} tasks done</p>
         </div>
       </div>
 
-      {/* Task list */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a' }}>
-          {isToday ? "Today's Schedule" : `${formatDate(currentDate).split(',')[0]}'s Schedule`}
-        </p>
-        {tasks.some(t => t.fromTemplate) && (
-          <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', background: '#f1f5f9', borderRadius: '20px', padding: '3px 10px' }}>From template</span>
-        )}
-      </div>
+      {/* Schedule */}
+      <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '12px' }}>
+        {isToday ? "Today's Schedule" : `${formatDate(currentDate).split(',')[0]}'s Schedule`}
+      </p>
 
-      {tasks.length === 0 ? (
-        <div style={{ background: '#fff', borderRadius: '14px', padding: '28px', textAlign: 'center', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+      {totalTasks === 0 && (
+        <div style={{ background: '#fff', borderRadius: '14px', padding: '28px', textAlign: 'center', color: '#94a3b8', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
           <p style={{ fontSize: '14px', fontWeight: '600' }}>No tasks yet. Tap + to add.</p>
         </div>
-      ) : tasks.map((task, idx) => {
+      )}
+
+      {/* Template tasks */}
+      {templateTasks.map(task => {
+        const isCompleted = completedTemplateIds.has(task.id)
         const dur = formatDuration(task.startTime, task.endTime)
         return (
-          <div key={task.id || idx} style={{ background: task.completed ? '#f0fdf4' : '#fff', border: `1px solid ${task.completed ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: '14px', padding: '13px 14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div key={`tpl_${task.id}`} style={{
+            background: isCompleted ? '#f0fdf4' : '#fff',
+            border: `1px solid ${isCompleted ? '#bbf7d0' : '#e2e8f0'}`,
+            borderRadius: '14px', padding: '13px 14px', marginBottom: '10px',
+            display: 'flex', alignItems: 'center', gap: '12px',
+          }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, gap: '2px', minWidth: '34px' }}>
               <Clock size={17} color='#94a3b8' />
               {dur && <span style={{ fontSize: '10px', fontWeight: '700', color: '#94a3b8' }}>{dur}</span>}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', textDecoration: task.completed ? 'line-through' : 'none', marginBottom: '3px', textTransform: 'capitalize' }}>{task.title}</p>
+              <p style={{ fontSize: '15px', fontWeight: '800', color: isCompleted ? '#94a3b8' : '#0f172a', textDecoration: isCompleted ? 'line-through' : 'none', marginBottom: '3px', textTransform: 'capitalize' }}>{task.title}</p>
               {task.subjectName && (
-                <p style={{ fontSize: '11px', fontWeight: '700', color: '#3b82f6', marginBottom: '3px' }}>
-                  📚 {task.subjectName}{task.topicName ? ` → ${task.topicName}` : ''}
-                </p>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#3b82f6', marginBottom: '3px' }}>📚 {task.subjectName}{task.topicName ? ` → ${task.topicName}` : ''}</p>
+              )}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: TAG_COLORS[task.tag]?.text || '#475569' }}>{task.tag}</span>
+                <span style={{ color: '#e2e8f0', fontSize: '10px' }}>●</span>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: PRIORITY_COLORS[task.priority] }}>{task.priority}</span>
+                <span style={{ color: '#e2e8f0', fontSize: '10px' }}>●</span>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8' }}>{task.points} 🏆</span>
+              </div>
+            </div>
+            <button onClick={() => handleToggleTemplate(task)} style={{
+              width: '32px', height: '32px', borderRadius: '50%',
+              border: `2px solid ${isCompleted ? '#4ade80' : '#e2e8f0'}`,
+              background: isCompleted ? '#4ade80' : '#fff',
+              color: isCompleted ? '#fff' : '#94a3b8',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '14px', fontWeight: '900', flexShrink: 0,
+            }}>
+              {isCompleted ? '✓' : ''}
+            </button>
+          </div>
+        )
+      })}
+
+      {/* Divider */}
+      {templateTasks.length > 0 && extraTasks.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0 12px' }}>
+          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+          <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8' }}>Extra tasks</span>
+          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+        </div>
+      )}
+
+      {/* Extra tasks */}
+      {extraTasks.map(task => {
+        const dur = formatDuration(task.startTime, task.endTime)
+        return (
+          <div key={`extra_${task.id}`} style={{
+            background: task.completed ? '#f0fdf4' : '#fff',
+            border: `1px solid ${task.completed ? '#bbf7d0' : '#dbeafe'}`,
+            borderRadius: '14px', padding: '13px 14px', marginBottom: '10px',
+            display: 'flex', alignItems: 'center', gap: '12px',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, gap: '2px', minWidth: '34px' }}>
+              <Clock size={17} color='#94a3b8' />
+              {dur && <span style={{ fontSize: '10px', fontWeight: '700', color: '#94a3b8' }}>{dur}</span>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '15px', fontWeight: '800', color: task.completed ? '#94a3b8' : '#0f172a', textDecoration: task.completed ? 'line-through' : 'none', marginBottom: '3px', textTransform: 'capitalize' }}>{task.title}</p>
+              {task.subjectName && (
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#3b82f6', marginBottom: '3px' }}>📚 {task.subjectName}{task.topicName ? ` → ${task.topicName}` : ''}</p>
               )}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: '700', color: TAG_COLORS[task.tag]?.text || '#475569' }}>{task.tag}</span>
@@ -267,18 +337,21 @@ export default function HomeScreen({ onPointsUpdate }) {
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexShrink: 0 }}>
-              <button onClick={() => task.completed ? handleUndoComplete(task) : handleQuickComplete(task)}
-                style={{ width: '32px', height: '32px', borderRadius: '50%', border: `2px solid ${task.completed ? '#4ade80' : '#e2e8f0'}`, background: task.completed ? '#4ade80' : '#fff', color: task.completed ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '900' }}>
+              <button onClick={() => handleToggleExtra(task)} style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                border: `2px solid ${task.completed ? '#4ade80' : '#e2e8f0'}`,
+                background: task.completed ? '#4ade80' : '#fff',
+                color: task.completed ? '#fff' : '#94a3b8',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '14px', fontWeight: '900',
+              }}>
                 {task.completed ? '✓' : ''}
               </button>
-              {!task.fromTemplate && (
-                <button onClick={() => setEditTask({ ...task })}
-                  style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: '#f0f9ff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Pencil size={13} color='#3b82f6' />
-                </button>
-              )}
-              <button onClick={() => handleDeleteTask(task)}
-                style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: '#fff5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={() => handleDeleteExtra(task)} style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                border: 'none', background: '#fff5f5',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
                 <Trash2 size={13} color='#ef4444' />
               </button>
             </div>
@@ -346,40 +419,6 @@ export default function HomeScreen({ onPointsUpdate }) {
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowAddTask(false)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
               <button onClick={handleAddTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Add Task</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Task Modal */}
-      {editTask && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setEditTask(null) }}>
-          <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '20px', width: '100%', maxWidth: '414px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ width: '36px', height: '4px', background: '#e2e8f0', borderRadius: '99px', margin: '0 auto 18px' }} />
-            <p style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', marginBottom: '16px' }}>Edit Task</p>
-            {[
-              { label: 'Title *', key: 'title', type: 'text' },
-              { label: 'Description', key: 'description', type: 'text' },
-              { label: 'Start Time', key: 'startTime', type: 'time' },
-              { label: 'End Time', key: 'endTime', type: 'time' },
-              { label: 'Points', key: 'points', type: 'number' },
-            ].map(field => (
-              <div key={field.key} style={{ marginBottom: '12px' }}>
-                <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{field.label}</p>
-                <input type={field.type} value={editTask[field.key] || ''} onChange={e => setEditTask({ ...editTask, [field.key]: e.target.value })}
-                  style={{ width: '100%', padding: '11px 13px', borderRadius: '11px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontFamily: 'Nunito, sans-serif', outline: 'none', color: '#0f172a', boxSizing: 'border-box', background: '#f8fafc' }} />
-              </div>
-            ))}
-            <p style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priority</p>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-              {['High', 'Medium', 'Low'].map(p => (
-                <button key={p} onClick={() => setEditTask({ ...editTask, priority: p })} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: `2px solid ${editTask.priority === p ? PRIORITY_COLORS[p] : '#e2e8f0'}`, cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontSize: '13px', fontWeight: '800', background: editTask.priority === p ? PRIORITY_COLORS[p] : '#fff', color: editTask.priority === p ? '#fff' : '#94a3b8' }}>{p}</button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setEditTask(null)} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Cancel</button>
-              <button onClick={handleEditTask} style={{ flex: 2, padding: '13px', borderRadius: '12px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}>Save Changes</button>
             </div>
           </div>
         </div>
