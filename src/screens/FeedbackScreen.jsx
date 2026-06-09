@@ -197,24 +197,40 @@ function StudySlot({ slot, idx, subjects, onUpdate, onDelete }) {
       )}
 
       {/* Topic */}
+      {/* Topics — multi select */}
       {slot.subjectId && topics.length > 0 && (
         <>
-          <Label>Topic Studied</Label>
+          <Label>Topics Studied (select multiple)</Label>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {topics.map(t => (
-              <button key={t.id} onClick={() => onUpdate({
-                ...slot,
-                topicId: slot.topicId === t.id ? null : t.id,
-                topicName: slot.topicId === t.id ? '' : t.name,
-              })} style={{
-                padding: '6px 12px', borderRadius: '20px',
-                border: `2px solid ${slot.topicId === t.id ? '#8b5cf6' : 'transparent'}`,
-                cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
-                fontSize: '12px', fontWeight: '700',
-                background: slot.topicId === t.id ? '#ede9fe' : '#f1f5f9',
-                color: slot.topicId === t.id ? '#5b21b6' : '#94a3b8',
-              }}>{t.name}</button>
-            ))}
+            {topics.map(t => {
+              const selectedTopics = slot.topicIds || []
+              const isSelected = selectedTopics.includes(t.id)
+              return (
+                <button key={t.id} onClick={() => {
+                  const newTopics = isSelected
+                    ? selectedTopics.filter(id => id !== t.id)
+                    : [...selectedTopics, t.id]
+                  const newNames = topics
+                    .filter(tp => newTopics.includes(tp.id))
+                    .map(tp => tp.name)
+                  onUpdate({
+                    ...slot,
+                    topicIds: newTopics,
+                    topicNames: newNames,
+                    // backward compat
+                    topicId: newTopics[0] || null,
+                    topicName: newNames[0] || '',
+                  })
+                }} style={{
+                  padding: '6px 12px', borderRadius: '20px',
+                  border: `2px solid ${isSelected ? '#8b5cf6' : 'transparent'}`,
+                  cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+                  fontSize: '12px', fontWeight: '700',
+                  background: isSelected ? '#ede9fe' : '#f1f5f9',
+                  color: isSelected ? '#5b21b6' : '#94a3b8',
+                }}>{t.name}</button>
+              )
+            })}
           </div>
         </>
       )}
@@ -320,6 +336,17 @@ export default function FeedbackScreen({ onSave }) {
         setStudySlots(slots)
       }
 
+      const officeTasks = todayTasks.filter(t => t.tag === 'Office' && t.startTime && t.endTime)
+      const officeMins = officeTasks.reduce((sum, t) => {
+        const [sh, sm] = t.startTime.split(':').map(Number)
+        const [eh, em] = t.endTime.split(':').map(Number)
+        let mins = (eh * 60 + em) - (sh * 60 + sm)
+        if (mins <= 0) mins += 24 * 60
+        return sum + mins
+      }, 0)
+      if (officeMins > 0 && !existing?.office) {
+        setOffice(p => ({ ...p, plannedHours: (officeMins / 60).toFixed(1) }))
+      }
       // Exercise planned duration from tasks
       const exTask = todayTasks.find(t => t.tag === 'Exercise' && t.startTime && t.endTime)
       if (exTask && !existing?.exercise) {

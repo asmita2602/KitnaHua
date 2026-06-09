@@ -45,8 +45,8 @@ function formatDuration(start, end) {
   if (!start || !end) return null
   const [sh, sm] = start.split(':').map(Number)
   const [eh, em] = end.split(':').map(Number)
-  const mins = (eh * 60 + em) - (sh * 60 + sm)
-  if (mins <= 0) return null
+  let mins = (eh * 60 + em) - (sh * 60 + sm)
+  if (mins <= 0) mins += 24 * 60 // midnight crossing
   return mins < 60 ? `${mins}m` : `${Math.round((mins / 60) * 10) / 10}h`
 }
 
