@@ -26,12 +26,22 @@ export default function App() {
     setLoading(false)
   }
 
-  async function refreshPoints() {
+async function refreshPoints() {
     try {
       const allTasks = await db.tasks.toArray()
-      const pts = allTasks
-        .filter(t => t.completed && t.date !== 'template')
-        .reduce((sum, t) => sum + (Number(t.points) || 0), 0)
+      // Only count completed tasks that are NOT template records
+      // Template completions have fromTemplateId set
+      // Avoid double counting: if fromTemplateId is set, count it once
+      const seenTemplateIds = new Set()
+      let pts = 0
+      for (const t of allTasks) {
+        if (!t.completed || t.date === 'template') continue
+        if (t.fromTemplateId != null) {
+          if (seenTemplateIds.has(t.fromTemplateId)) continue
+          seenTemplateIds.add(t.fromTemplateId)
+        }
+        pts += Number(t.points) || 0
+      }
 
       let bonusPts = 0
       try {

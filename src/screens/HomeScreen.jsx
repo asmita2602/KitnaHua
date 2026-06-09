@@ -76,6 +76,21 @@ export default function HomeScreen({ onPointsUpdate }) {
     const dt = dayRecord?.dayType || getDefaultDayType(currentDate)
     setDayType(dt)
 
+  async function cleanupOrphanCompletions() {
+    try {
+      const templates = await db.tasks.where('date').equals('template').toArray()
+      const templateIds = new Set(templates.map(t => t.id))
+      const allSaved = await db.tasks.toArray()
+      // Delete completion records whose template no longer exists
+      for (const task of allSaved) {
+        if (task.fromTemplateId != null && !templateIds.has(task.fromTemplateId)) {
+          await db.tasks.delete(task.id)
+        }
+      }
+    } catch {}
+  }
+  await cleanupOrphanCompletions()
+
     // 1. Template tasks for this day type — ALWAYS show all
     const allTemplates = await db.tasks.where('date').equals('template').toArray()
     const todayTemplates = allTemplates.filter(t => t.dayTypeTemplate === dt)
