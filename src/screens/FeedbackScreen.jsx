@@ -198,37 +198,27 @@ function StudySlot({ slot, idx, subjects, onUpdate, onDelete }) {
 
       {/* Topic */}
       {/* Topics — multi select */}
+{/* Topics — multi select */}
       {slot.subjectId && topics.length > 0 && (
         <>
-          <Label>Topics Studied (select multiple)</Label>
+          <Label>Topics Studied</Label>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {topics.map(t => {
-              const selectedTopics = slot.topicIds || []
-              const isSelected = selectedTopics.includes(t.id)
+              const selectedIds = Array.isArray(slot.topicIds) ? slot.topicIds : (slot.topicId ? [slot.topicId] : [])
+              const isSelected = selectedIds.includes(t.id)
               return (
-                <button key={t.id} onClick={() => {
-                  const newTopics = isSelected
-                    ? selectedTopics.filter(id => id !== t.id)
-                    : [...selectedTopics, t.id]
-                  const newNames = topics
-                    .filter(tp => newTopics.includes(tp.id))
-                    .map(tp => tp.name)
-                  onUpdate({
-                    ...slot,
-                    topicIds: newTopics,
-                    topicNames: newNames,
-                    // backward compat
-                    topicId: newTopics[0] || null,
-                    topicName: newNames[0] || '',
-                  })
+              <button key={t.id} onClick={() => {
+                const newIds = isSelected ? selectedIds.filter(id => id !== t.id) : [...selectedIds, t.id]
+                const newNames = topics.filter(tp => newIds.includes(tp.id)).map(tp => tp.name)
+                onUpdate({ ...slot, topicIds: newIds, topicNames: newNames, topicId: newIds[0] || null, topicName: newNames[0] || '' })
                 }} style={{
-                  padding: '6px 12px', borderRadius: '20px',
-                  border: `2px solid ${isSelected ? '#8b5cf6' : 'transparent'}`,
-                  cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
-                  fontSize: '12px', fontWeight: '700',
-                  background: isSelected ? '#ede9fe' : '#f1f5f9',
-                  color: isSelected ? '#5b21b6' : '#94a3b8',
-                }}>{t.name}</button>
+                padding: '6px 12px', borderRadius: '20px',
+                border: `2px solid ${isSelected ? '#8b5cf6' : 'transparent'}`,
+                cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+                fontSize: '12px', fontWeight: '700',
+                background: isSelected ? '#ede9fe' : '#f1f5f9',
+                color: isSelected ? '#5b21b6' : '#94a3b8',
+              }}>{t.name}</button>
               )
             })}
           </div>
@@ -276,13 +266,11 @@ export default function FeedbackScreen({ onSave }) {
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    // Load subjects
     try {
       const subs = await db.subjects.toArray()
       setSubjects(subs)
     } catch {}
 
-    // Load saved feedback
     try {
       const rec = await db.feedback?.get?.(today)
       if (rec) {
@@ -290,34 +278,37 @@ export default function FeedbackScreen({ onSave }) {
         if (rec.office)     { setOffice(rec.office);         setOfficeDone(true) }
         if (rec.exercise)   { setExercise(rec.exercise);     setExerciseDone(true) }
         if (rec.reflection) { setReflection(rec.reflection); setReflectionDone(true) }
+        return // saved feedback hai toh pre-fill mat karo
       }
     } catch {}
 
-    // Load today's study tasks from home screen → pre-fill slots
+    // No saved feedback — pre-fill from today's tasks
     try {
       const dayRecord = await db.days.get(today)
       const dt = dayRecord?.dayType || 'Normal Day'
 
-      // Get actual tasks for today first
-      let todayTasks = await db.tasks.where('date').equals(today).toArray()
+      // Template tasks for this day type
+      const allTemplates = await db.tasks.where('date').equals('template').toArray()
+      const todayTemplates = allTemplates.filter(t => t.dayTypeTemplate === dt)
 
-      // If no tasks, fallback to template
-      if (todayTasks.length === 0) {
-        const templateTasks = await db.tasks.where('date').equals('template').toArray()
-        todayTasks = templateTasks.filter(t => t.dayTypeTemplate === dt)
-      }
+      // Extra tasks added for today (not template completions)
+      const todayReal = await db.tasks.where('date').equals(today).toArray()
+      const extraTasks = todayReal.filter(t => t.fromTemplateId == null)
 
-      const studyTasks = todayTasks.filter(t => t.tag === 'Study')
+      // Combine — template first, then extra
+      const allTodayTasks = [...todayTemplates, ...extraTasks]
 
-      // Only pre-fill if no saved slots
-      const existing = await db.feedback?.get?.(today)
-      if (!existing?.studySlots && studyTasks.length > 0) {
+      // Study slots — one per study task, no duplicates
+      const studyTasks = allTodayTasks.filter(t => t.tag === 'Study')
+      if (studyTasks.length > 0) {
         const slots = studyTasks.map(task => {
           let plannedMins = 0
           if (task.startTime && task.endTime) {
             const [sh, sm] = task.startTime.split(':').map(Number)
             const [eh, em] = task.endTime.split(':').map(Number)
-            plannedMins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
+            let mins = (eh * 60 + em) - (sh * 60 + sm)
+            if (mins <= 0) mins += 24 * 60
+            plannedMins = Math.max(0, mins)
           }
           return {
             taskId: task.id,
@@ -327,6 +318,8 @@ export default function FeedbackScreen({ onSave }) {
             subjectName: task.subjectName || '',
             topicId: task.topicId || null,
             topicName: task.topicName || '',
+            topicIds: task.topicId ? [task.topicId] : [],
+            topicNames: task.topicName ? [task.topicName] : [],
             actualHours: '',
             activities: [],
             blockers: '',
@@ -336,26 +329,31 @@ export default function FeedbackScreen({ onSave }) {
         setStudySlots(slots)
       }
 
-      const officeTasks = todayTasks.filter(t => t.tag === 'Office' && t.startTime && t.endTime)
+      // Exercise planned
+      const exTask = allTodayTasks.find(t => t.tag === 'Exercise' && t.startTime && t.endTime)
+      if (exTask) {
+        const [sh, sm] = exTask.startTime.split(':').map(Number)
+        const [eh, em] = exTask.endTime.split(':').map(Number)
+        let mins = (eh * 60 + em) - (sh * 60 + sm)
+        if (mins <= 0) mins += 24 * 60
+        if (mins > 0) setExercise(p => ({ ...p, plannedDuration: (mins / 60).toFixed(1) }))
+      }
+
+      // Office planned hours
+      const officeTasks = allTodayTasks.filter(t => t.tag === 'Office')
       const officeMins = officeTasks.reduce((sum, t) => {
+        if (!t.startTime || !t.endTime) return sum
         const [sh, sm] = t.startTime.split(':').map(Number)
         const [eh, em] = t.endTime.split(':').map(Number)
         let mins = (eh * 60 + em) - (sh * 60 + sm)
         if (mins <= 0) mins += 24 * 60
         return sum + mins
       }, 0)
-      if (officeMins > 0 && !existing?.office) {
-        setOffice(p => ({ ...p, plannedHours: (officeMins / 60).toFixed(1) }))
-      }
-      // Exercise planned duration from tasks
-      const exTask = todayTasks.find(t => t.tag === 'Exercise' && t.startTime && t.endTime)
-      if (exTask && !existing?.exercise) {
-        const [sh, sm] = exTask.startTime.split(':').map(Number)
-        const [eh, em] = exTask.endTime.split(':').map(Number)
-        const mins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
-        if (mins > 0) setExercise(p => ({ ...p, plannedDuration: (mins / 60).toFixed(1) }))
-      }
-    } catch {}
+      if (officeMins > 0) setOffice(p => ({ ...p, plannedHours: (officeMins / 60).toFixed(1) }))
+
+    } catch (e) {
+      console.log('loadAll error:', e)
+    }
   }
 
   async function syncSubjectsToLectures(slots) {

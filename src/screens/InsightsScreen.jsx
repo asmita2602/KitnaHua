@@ -3,8 +3,7 @@ import { Brain, RefreshCw, TrendingUp, BookOpen, Dumbbell, Star, BarChart2 } fro
 import { db } from '../db'
 import { localDateString } from '../utils'
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_MODEL = 'gemini-1.5-flash'
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 function formatDate(dateStr) {
   const parts = dateStr.split('-').map(Number)
@@ -243,35 +242,45 @@ export default function InsightsScreen() {
 
   function buildPrompt(feedback, dt, allFb) {
     const recentDays = allFb.slice(-7)
-    // ✅ fixed: read from feedback.study
-    const totalStudy = parseFloat(feedback?.study?.actualHours) || 0
-    const subjects   = feedback?.study?.subjects?.join(', ') || 'None'
-    const recentAvg  = (
-      recentDays.reduce((s, f) => s + (parseFloat(f?.study?.actualHours) || 0), 0) /
-      Math.max(recentDays.length, 1)
-    ).toFixed(1)
+    const totalStudy = feedback?.studySlots?.reduce((s, sess) => s + (parseFloat(sess.actualHours) || 0), 0) || 0
+    const subjects = feedback?.studySlots?.map(s => `${s.subjectName}(${s.actualHours}h)`).filter(s => s).join(', ') || 'None'
+    const topics = feedback?.studySlots?.map(s => s.topicNames?.join(', ') || s.topicName || '').filter(Boolean).join(', ') || 'None'
+    const avgStudy = (recentDays.reduce((s, f) => s + (f.studySlots?.reduce((ss, sl) => ss + (parseFloat(sl.actualHours) || 0), 0) || f.study?.actualHours || 0), 0) / Math.max(recentDays.length, 1)).toFixed(1)
 
-    return `You are a strict productivity coach for Asmita, a working professional preparing for government exams.
+    return `You are a strict personal productivity coach for Asmita, a software developer at Accenture preparing for CIL Management Trainee (CS) government exam.
 
-Today's data:
-- Selected day type: ${dt}
-- Total study hours: ${totalStudy}h, Subjects: ${subjects}
-- Office: Hours ${feedback?.office?.actualHours || 0}, Meetings: ${feedback?.office?.meetingsCount || 0}, Blockers: "${feedback?.office?.blockers || 'None'}"
-- Exercise: Planned ${feedback?.exercise?.plannedDuration || 0}h, Actual ${feedback?.exercise?.actualDuration || 0}h
-- Reflection: Overall ${feedback?.reflection?.overallSatisfaction || 0}/10, Achievement: "${feedback?.reflection?.biggestAchievement || ''}", Challenge: "${feedback?.reflection?.biggestChallenge || ''}"
-- Recent 7 days avg study: ${recentAvg}h
+Today's detailed data:
+- Day type (selected): ${dt}
+- Study sessions: ${feedback?.studySlots?.length || 0} sessions, total ${totalStudy}h
+- Subjects studied: ${subjects}
+- Topics covered: ${topics}
+- Office: ${feedback?.office?.actualHours || 0}h worked, ${feedback?.office?.meetingsCount || 0} meetings, work: ${feedback?.office?.workTypes?.join(', ') || 'N/A'}, blockers: "${feedback?.office?.blockers || 'None'}"
+- Exercise: Planned ${feedback?.exercise?.plannedDuration || 0}h, Actual ${feedback?.exercise?.actualDuration || 0}h, type: ${feedback?.exercise?.exerciseType || 'N/A'}
+- Overall satisfaction: ${feedback?.reflection?.overallSatisfaction || 0}/10
+- Last 7 days avg study: ${avgStudy}h/day
+- Today vs yesterday: ${totalStudy > parseFloat(avgStudy) ? 'Better than average' : 'Below average'}
 
-Scoring: Base 5. Study 4h+=+2, 3h=+1.5, 2h=+0.5, 1h=-0.5, 0h=-1.5. Exercise 100%=+1, 75%=+0.5, <50%=-0.5.
+Scoring rules (base 5):
+- Study 4h+: +2, 3h: +1.5, 2h: +0.5, 1h: -0.5, 0h: -1.5
+- Exercise 100%: +1, 75%: +0.5, <50%: -0.5
+- High office load (5+ meetings or urgent blockers): note in analysis
+
+Score breakdown required — show exactly what added/subtracted.
 Reclassify to High Pressure if meetings>=5 or urgent/production/critical in blockers.
-Be strict, not rude. Reality check if study missed.
+Address Asmita by name. Reference specific subjects. Be strict but encouraging.
 
 Respond ONLY valid JSON:
 {
   "score": 7.5,
+  "scoreBreakdown": [
+    "+1.5 for 3h study",
+    "+0.5 for exercise completed",
+    "-0.5 for skipping DSA revision"
+  ],
   "reclassifiedType": "Normal Day",
   "reclassifyReason": null,
-  "analysis": "Two line max analysis",
-  "recommendation": "One actionable recommendation",
+  "analysis": "Asmita, today you spent 3h on COA and completed normalization topic. Exercise was consistent. However DSA received no attention despite being exam critical.",
+  "recommendation": "Tomorrow prioritize DSA for at least 1.5h before office hours. COA momentum is good — shift focus now.",
   "realityCheck": null
 }`
   }
@@ -364,8 +373,23 @@ Respond ONLY valid JSON:
           )}
 
           {/* Score */}
+         {/* Card 2: Score */}
           <InsightCard icon={Star} iconColor='#f59e0b' title="Today's Score">
             <ScoreBadge score={analysis.score || 5} />
+            {analysis.scoreBreakdown && analysis.scoreBreakdown.length > 0 && (
+              <div style={{ marginTop: '12px', background: '#f8fafc', borderRadius: '10px', padding: '10px 12px' }}>
+                <p style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>Score Breakdown:</p>
+                {analysis.scoreBreakdown.map((item, i) => (
+                  <p key={i} style={{
+                    fontSize: '12px', fontWeight: '600', fontFamily: 'Nunito, sans-serif',
+                    color: item.startsWith('+') ? '#22c55e' : item.startsWith('-') ? '#ef4444' : '#64748b',
+                    marginBottom: '3px',
+                  }}>
+                    {item}
+                  </p>
+                ))}
+              </div>
+            )}
           </InsightCard>
 
           {/* Analysis */}

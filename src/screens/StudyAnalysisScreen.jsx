@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
-import { BookOpen, Award, Clock, BarChart2, Brain } from 'lucide-react'
+import { BookOpen, TrendingUp, Clock, BarChart2, Brain } from 'lucide-react'
 import { db } from '../db'
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_MODEL   = 'gemini-1.5-flash'
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) return null
@@ -238,30 +237,35 @@ Keep it concise, no bullet points, plain text only.`
       </Card>
 
       {/* Section 3 — Subject Ranking */}
-      <Card>
-        <SectionHeader icon={Award} iconColor='#f59e0b' title="Subject Ranking" />
-        <p style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', marginBottom: '10px' }}>
-          Score = 40% completion + 30% study hours + 20% questions + 10% revision
-        </p>
-        {ranking.map((sub, idx) => (
+       <Card>
+        <SectionHeader icon={BookOpen} iconColor='#3b82f6' title="Subject-wise Activity" />
+        {subjects.length === 0 ? (
+          <p style={{ fontSize: '13px', color: '#94a3b8' }}>No subjects yet.</p>
+        ) : subjects.map(sub => (
           <div key={sub.id} style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '10px 0', borderBottom: idx < ranking.length - 1 ? '1px solid #f1f5f9' : 'none',
+            background: '#f8fafc', borderRadius: '12px', padding: '12px',
+            marginBottom: '10px', border: '1px solid #e2e8f0',
           }}>
-            <div style={{
-              width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-              background: idx === 0 ? '#fef9c3' : idx === 1 ? '#f1f5f9' : idx === 2 ? '#ffedd5' : '#f8fafc',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <p style={{ fontSize: '13px', fontWeight: '900', color: idx === 0 ? '#854d0e' : idx === 1 ? '#475569' : idx === 2 ? '#9a3412' : '#94a3b8' }}>
-                {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
-              </p>
-            </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a' }}>{sub.name}</p>
-              <p style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>
-                {sub.completion}% done · {sub.hours.toFixed(1)}h studied · {sub.questionsSolved} Q solved
-              </p>
+            <p style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+              {sub.name}
+            </p>
+            {[
+              { label: '👁 Watched', value: sub.completedLectures, color: '#3b82f6' },
+              { label: '📝 Notes', value: sub.notesMade, color: '#8b5cf6' },
+              { label: '❓ Questions', value: sub.questionsSolved, color: '#f97316' },
+              { label: '🔄 Revision', value: sub.revisionDone, color: '#22c55e' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>{item.label}</p>
+                <p style={{ fontSize: '13px', fontWeight: '800', color: item.color }}>{item.value}</p>
+              </div>
+            ))}
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                <p style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8' }}>Completion</p>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#0f172a' }}>{sub.completion}%</p>
+              </div>
+              <ProgressBar value={sub.completion} color={sub.completion >= 80 ? '#22c55e' : sub.completion >= 50 ? '#3b82f6' : '#f97316'} />
             </div>
           </div>
         ))}
