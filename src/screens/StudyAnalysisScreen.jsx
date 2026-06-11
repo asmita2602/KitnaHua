@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BookOpen, TrendingUp, Clock, BarChart2, Brain } from 'lucide-react'
 import { db } from '../db'
-
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 async function callGemini(prompt) {

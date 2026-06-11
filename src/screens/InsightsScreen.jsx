@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Brain, RefreshCw, TrendingUp, BookOpen, Dumbbell, Star, BarChart2 } from 'lucide-react'
 import { db } from '../db'
 import { localDateString } from '../utils'
-
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 function formatDate(dateStr) {
