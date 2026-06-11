@@ -137,20 +137,36 @@ function computeLocalAnalysis(feedback, dayType) {
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) return null
   try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000) // 15 sec timeout
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 600,
+            thinkingConfig: { thinkingBudget: 0 }, // disable thinking for speed
+          },
         }),
       }
     )
+    clearTimeout(timeout)
     const data = await res.json()
+    if (data.error) {
+      console.log('Gemini error:', data.error.message)
+      return null
+    }
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || null
-  } catch { return null }
+  } catch (e) {
+    console.log('Gemini call failed:', e.message)
+    return null
+  }
 }
 
 function parseGeminiJSON(text) {
@@ -225,18 +241,28 @@ export default function InsightsScreen() {
     const local = computeLocalAnalysis(feedback, dt)
 
     if (GEMINI_API_KEY) {
-      const raw    = await callGemini(buildPrompt(feedback, dt, allFb))
-      const parsed = raw ? parseGeminiJSON(raw) : null
-      if (parsed) {
-        setAnalysis({ ...parsed, _source: 'ai' })
-        setAiMode(true)
-        setLoading(false)
-        return
+      try {
+        const prompt = buildPrompt(feedback, dt, allFb)
+        const raw = await callGemini(prompt)
+        if (raw) {
+          const parsed = parseGeminiJSON(raw)
+          if (parsed && parsed.score) {
+            setAnalysis({ ...parsed, _source: 'ai' })
+            setAiMode(true)
+            setLoading(false)
+            buildMonthSummary(allFb)
+            return
+          }
+        }
+      } catch (e) {
+        console.log('AI analysis failed, using local:', e.message)
       }
     }
 
+    // Fallback to local
     setAnalysis({ ...local, _source: 'local' })
     setAiMode(false)
+    buildMonthSummary(allFb)
     setLoading(false)
   }
 

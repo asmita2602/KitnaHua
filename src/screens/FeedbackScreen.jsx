@@ -149,13 +149,12 @@ function StudySlot({ slot, idx, subjects, onUpdate, onDelete }) {
     }}>
       {/* Slot header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ background: '#3b82f6', borderRadius: '20px', padding: '3px 10px' }}>
-            <p style={{ fontSize: '12px', fontWeight: '800', color: '#fff' }}>Study {idx + 1}</p>
+            <p style={{ fontSize: '12px', fontWeight: '800', color: '#fff' }}>
+              {slot.title ? slot.title : `Study ${idx + 1}`}
+            </p>
           </div>
-          {slot.title && (
-            <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>{slot.title}</p>
-          )}
           {slot.plannedMins > 0 && (
             <p style={{ fontSize: '11px', color: '#94a3b8' }}>({formatMins(slot.plannedMins)} planned)</p>
           )}

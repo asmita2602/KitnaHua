@@ -42,18 +42,48 @@ export default function CalendarScreen({ onSave }) {
     const allDays = await db.days.toArray()
     const dayMap = {}
     allDays.forEach(d => { dayMap[d.date] = d.dayType })
-    setDayTypes(dayMap)
-
+  
+  setDayTypes(dayMap)
     const allTasks = await db.tasks.toArray()
+    const templateTasks = allTasks.filter(t => t.date === 'template')
     const statsMap = {}
-    allTasks.forEach(t => {
-      if (!statsMap[t.date]) statsMap[t.date] = { total: 0, completed: 0, points: 0 }
-      statsMap[t.date].total++
-      if (t.completed) {
-        statsMap[t.date].completed++
-        statsMap[t.date].points += (t.points || 0)
-      }
+
+    // Real tasks (non-template, non-completion records)
+    allTasks
+      .filter(t => t.date !== 'template')
+      .forEach(t => {
+        if (!statsMap[t.date]) statsMap[t.date] = { total: 0, completed: 0, points: 0 }
+        // Completion records (fromTemplateId set) — count as completed only
+        if (t.fromTemplateId != null) {
+          if (t.completed) {
+            statsMap[t.date].completed++
+            statsMap[t.date].points += (t.points || 0)
+          }
+        } else {
+          // Extra tasks — count normally
+          statsMap[t.date].total++
+          if (t.completed) {
+            statsMap[t.date].completed++
+            statsMap[t.date].points += (t.points || 0)
+          }
+        }
+      })
+
+    // Add template tasks to total for each date
+    const dayTypeMap = {}
+    allDays.forEach(d => { dayTypeMap[d.date] = d.dayType })
+
+    // For each date that has any activity, add template count
+    Object.keys(statsMap).forEach(dateStr => {
+      const dt = dayTypeMap[dateStr] || (() => {
+        const parts = dateStr.split('-').map(Number)
+        const dow = new Date(parts[0], parts[1]-1, parts[2]).getDay()
+        return dow === 0 || dow === 6 ? 'Weekend Day' : 'Normal Day'
+      })()
+      const templateCount = templateTasks.filter(t => t.dayTypeTemplate === dt).length
+      statsMap[dateStr].total += templateCount
     })
+
     setTaskStats(statsMap)
   }
 
