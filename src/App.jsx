@@ -43,15 +43,9 @@ async function refreshPoints() {
         pts += Number(t.points) || 0
       }
 
-      let bonusPts = 0
-      try {
-        const allFeedback = await db.feedback?.toArray?.() || []
-        bonusPts = allFeedback.reduce((sum, f) => sum + (f.bonusPoints || 0), 0)
-      } catch {}
-
-      const reds = await db.redemptions?.toArray?.() || []
+    const reds = await db.redemptions?.toArray?.() || []
       const redPts = reds.reduce((s, r) => s + (Number(r.cost) || 0), 0)
-      setTotalPoints(Math.max(0, pts + bonusPts - redPts))
+      setTotalPoints(Math.max(0, pts - redPts))
     } catch {}
   }
 
