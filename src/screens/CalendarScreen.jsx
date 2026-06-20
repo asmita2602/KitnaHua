@@ -1,25 +1,19 @@
 import { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { db } from '../db'
+import { localDateString } from '../utils'
 
 const DAY_TYPES = ['Normal Day', 'High Pressure Day', 'Travel Day', 'Weekend Day']
 
-const DAY_TYPE_COLORS = {
-  'Normal Day': { bg: '#fef9c3', text: '#854d0e', border: '#fde047' },
-  'High Pressure Day': { bg: '#ffedd5', text: '#9a3412', border: '#fb923c' },
-  'Travel Day': { bg: '#ede9fe', text: '#5b21b6', border: '#a78bfa' },
-  'Weekend Day': { bg: '#dcfce7', text: '#14532d', border: '#4ade80' },
+const DAY_TYPE_CSS = {
+  'Normal Day':        { bg: 'oklch(85% .13 95 / .15)',  text: 'var(--day-normal)',   border: 'var(--day-normal)' },
+  'High Pressure Day': { bg: 'oklch(78% .16 50 / .15)',  text: 'var(--day-pressure)', border: 'var(--day-pressure)' },
+  'Travel Day':        { bg: 'oklch(74% .15 310 / .15)', text: 'var(--day-travel)',   border: 'var(--day-travel)' },
+  'Weekend Day':       { bg: 'oklch(82% .14 155 / .15)', text: 'var(--day-weekend)',  border: 'var(--day-weekend)' },
 }
 
-function getDaysInMonth(year, month) {
-  return new Date(year, month + 1, 0).getDate()
-}
-
-function getFirstDayOfMonth(year, month) {
-  return new Date(year, month, 1).getDay()
-}
-
-import { localDateString } from '../utils'
+function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate() }
+function getFirstDayOfMonth(year, month) { return new Date(year, month, 1).getDay() }
 
 function getDefaultDayType(dateStr) {
   const day = new Date(dateStr + 'T00:00:00').getDay()
@@ -42,38 +36,25 @@ export default function CalendarScreen({ onSave }) {
     const allDays = await db.days.toArray()
     const dayMap = {}
     allDays.forEach(d => { dayMap[d.date] = d.dayType })
-  
-  setDayTypes(dayMap)
+    setDayTypes(dayMap)
+
     const allTasks = await db.tasks.toArray()
     const templateTasks = allTasks.filter(t => t.date === 'template')
     const statsMap = {}
 
-    // Real tasks (non-template, non-completion records)
-    allTasks
-      .filter(t => t.date !== 'template')
-      .forEach(t => {
-        if (!statsMap[t.date]) statsMap[t.date] = { total: 0, completed: 0, points: 0 }
-        // Completion records (fromTemplateId set) — count as completed only
-        if (t.fromTemplateId != null) {
-          if (t.completed) {
-            statsMap[t.date].completed++
-            statsMap[t.date].points += (t.points || 0)
-          }
-        } else {
-          // Extra tasks — count normally
-          statsMap[t.date].total++
-          if (t.completed) {
-            statsMap[t.date].completed++
-            statsMap[t.date].points += (t.points || 0)
-          }
-        }
-      })
+    allTasks.filter(t => t.date !== 'template').forEach(t => {
+      if (!statsMap[t.date]) statsMap[t.date] = { total: 0, completed: 0, points: 0 }
+      if (t.fromTemplateId != null) {
+        if (t.completed) { statsMap[t.date].completed++; statsMap[t.date].points += (t.points || 0) }
+      } else {
+        statsMap[t.date].total++
+        if (t.completed) { statsMap[t.date].completed++; statsMap[t.date].points += (t.points || 0) }
+      }
+    })
 
-    // Add template tasks to total for each date
     const dayTypeMap = {}
     allDays.forEach(d => { dayTypeMap[d.date] = d.dayType })
 
-    // For each date that has any activity, add template count
     Object.keys(statsMap).forEach(dateStr => {
       const dt = dayTypeMap[dateStr] || (() => {
         const parts = dateStr.split('-').map(Number)
@@ -101,12 +82,12 @@ export default function CalendarScreen({ onSave }) {
     else setCurrentMonth(m => m + 1)
   }
 
-async function handleDayTypeChange(type) {
-  await db.days.put({ date: selectedDate, dayType: type })
-  setDayTypes(prev => ({ ...prev, [selectedDate]: type }))
-  setShowPopup(false)
-  onSave?.('days', { date: selectedDate, dayType: type }) // ADD THIS
-}
+  async function handleDayTypeChange(type) {
+    await db.days.put({ date: selectedDate, dayType: type })
+    setDayTypes(prev => ({ ...prev, [selectedDate]: type }))
+    setShowPopup(false)
+    onSave?.('days', { date: selectedDate, dayType: type })
+  }
 
   function handleDateClick(dateStr) {
     setSelectedDate(dateStr)
@@ -119,96 +100,55 @@ async function handleDayTypeChange(type) {
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
   return (
-    <div style={{ padding: '16px', fontFamily: 'Nunito, sans-serif' }}>
+    <div style={{ padding: '16px', fontFamily: 'Inter, sans-serif', paddingBottom: '32px' }}>
 
       {/* Month Navigation */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: '16px',
-      }}>
-        <button onClick={prevMonth} style={{
-          background: '#f1f5f9', border: 'none', borderRadius: '10px',
-          width: '36px', height: '36px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <ChevronLeft size={20} color='#0f172a' />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <button onClick={prevMonth} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', width: '36px', height: '36px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ChevronLeft size={20} color='var(--fg)' />
         </button>
-        <p style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>
-          {monthName}
-        </p>
-        <button onClick={nextMonth} style={{
-          background: '#f1f5f9', border: 'none', borderRadius: '10px',
-          width: '36px', height: '36px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <ChevronRight size={20} color='#0f172a' />
+        <p style={{ fontSize: '17px', fontWeight: '800', color: 'var(--fg)' }}>{monthName}</p>
+        <button onClick={nextMonth} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', width: '36px', height: '36px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ChevronRight size={20} color='var(--fg)' />
         </button>
       </div>
 
       {/* Weekday Headers */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-        marginBottom: '6px', gap: '3px',
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: '6px', gap: '3px' }}>
         {weekDays.map(d => (
-          <div key={d} style={{
-            textAlign: 'center', fontSize: '11px',
-            fontWeight: '700', color: '#94a3b8', padding: '4px 0',
-          }}>
+          <div key={d} style={{ textAlign: 'center', fontSize: '11px', fontWeight: '700', color: 'var(--muted-fg)', padding: '4px 0' }}>
             {d}
           </div>
         ))}
       </div>
 
       {/* Calendar Grid */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px',
-      }}>
-        {/* Empty cells */}
-        {Array.from({ length: firstDay }).map((_, i) => (
-          <div key={`empty-${i}`} />
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px' }}>
+        {Array.from({ length: firstDay }).map((_, i) => <div key={`empty-${i}`} />)}
 
-        {/* Day cells */}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1
           const dateStr = getDateStr(currentYear, currentMonth, day)
           const dayType = dayTypes[dateStr] || getDefaultDayType(dateStr)
-          const colors = DAY_TYPE_COLORS[dayType]
+          const css = DAY_TYPE_CSS[dayType]
           const stats = taskStats[dateStr]
           const isToday = dateStr === today
 
           return (
-            <div
-              key={dateStr}
-              onClick={() => handleDateClick(dateStr)}
-              style={{
-                background: colors.bg,
-                border: isToday ? `2px solid #38bdf8` : `1px solid ${colors.border}`,
-                borderRadius: '10px',
-                padding: '6px 4px',
-                cursor: 'pointer',
-                minHeight: '62px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '2px',
-              }}
-            >
-              <p style={{
-                fontSize: '13px', fontWeight: isToday ? '800' : '700',
-                color: isToday ? '#38bdf8' : colors.text,
-              }}>
+            <div key={dateStr} onClick={() => handleDateClick(dateStr)} style={{
+              background: css.bg,
+              border: isToday ? `2px solid var(--primary)` : `1px solid ${css.border}`,
+              borderRadius: '10px', padding: '6px 4px', cursor: 'pointer',
+              minHeight: '62px', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: '2px',
+            }}>
+              <p style={{ fontSize: '13px', fontWeight: isToday ? '800' : '700', color: isToday ? 'var(--primary)' : css.text }}>
                 {day}
               </p>
               {stats && (
                 <>
-                  <p style={{ fontSize: '9px', fontWeight: '700', color: colors.text, textAlign: 'center' }}>
-                    {stats.points} 🏆
-                  </p>
-                  <p style={{ fontSize: '9px', color: colors.text, textAlign: 'center' }}>
-                    ✓ {stats.completed}/{stats.total}
-                  </p>
+                  <p style={{ fontSize: '9px', fontWeight: '700', color: css.text, textAlign: 'center' }}>{stats.points} 🏆</p>
+                  <p style={{ fontSize: '9px', color: css.text, textAlign: 'center' }}>✓ {stats.completed}/{stats.total}</p>
                 </>
               )}
             </div>
@@ -217,27 +157,15 @@ async function handleDayTypeChange(type) {
       </div>
 
       {/* Legend */}
-      <div style={{
-        marginTop: '20px', background: '#fff', borderRadius: '14px',
-        padding: '14px 16px', border: '1px solid #e2e8f0',
-      }}>
-        <p style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>
-          Day Types
-        </p>
+      <div style={{ marginTop: '20px', background: 'var(--surface)', borderRadius: '14px', padding: '14px 16px', border: '1px solid var(--border)' }}>
+        <p style={{ fontSize: '13px', fontWeight: '800', color: 'var(--fg)', marginBottom: '10px' }}>Day Types</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
           {DAY_TYPES.map(type => {
-            const c = DAY_TYPE_COLORS[type]
+            const c = DAY_TYPE_CSS[type]
             return (
-              <div key={type} style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-              }}>
-                <div style={{
-                  width: '14px', height: '14px', borderRadius: '4px',
-                  background: c.bg, border: `1px solid ${c.border}`, flexShrink: 0,
-                }} />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
-                  {type}
-                </span>
+              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '14px', height: '14px', borderRadius: '4px', background: c.bg, border: `1px solid ${c.border}`, flexShrink: 0 }} />
+                <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--muted-fg)' }}>{type}</span>
               </div>
             )
           })}
@@ -246,62 +174,35 @@ async function handleDayTypeChange(type) {
 
       {/* Popup */}
       {showPopup && selectedDate && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-          zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '20px',
-        }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowPopup(false) }}
-        >
-          <div style={{
-            background: '#fff', borderRadius: '20px',
-            padding: '20px', width: '100%', maxWidth: '340px',
-          }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPopup(false) }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '20px', padding: '20px', width: '100%', maxWidth: '340px', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <p style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+              <p style={{ fontSize: '16px', fontWeight: '800', color: 'var(--fg)' }}>
                 {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
-              <button onClick={() => setShowPopup(false)} style={{
-                background: '#f1f5f9', border: 'none', borderRadius: '8px',
-                width: '32px', height: '32px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <X size={16} color='#64748b' />
+              <button onClick={() => setShowPopup(false)} style={{ background: 'var(--surface-2)', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X size={16} color='var(--muted-fg)' />
               </button>
             </div>
-
-            <p style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '10px' }}>
-              Change day type:
-            </p>
-
+            <p style={{ fontSize: '12px', fontWeight: '600', color: 'var(--muted-fg)', marginBottom: '10px' }}>Change day type:</p>
             {DAY_TYPES.map(type => {
-              const c = DAY_TYPE_COLORS[type]
+              const c = DAY_TYPE_CSS[type]
               const current = dayTypes[selectedDate] || getDefaultDayType(selectedDate)
               const isSelected = current === type
               return (
-                <button key={type} onClick={() => handleDayTypeChange(type)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    width: '100%', padding: '12px', marginBottom: '8px',
-                    background: isSelected ? c.bg : '#f8fafc',
-                    border: isSelected ? `2px solid ${c.border}` : '1px solid #e2e8f0',
-                    borderRadius: '12px', cursor: 'pointer',
-                    fontFamily: 'Nunito, sans-serif',
-                  }}
-                >
-                  <div style={{
-                    width: '16px', height: '16px', borderRadius: '4px',
-                    background: c.bg, border: `2px solid ${c.border}`,
-                  }} />
-                  <span style={{
-                    fontSize: '14px', fontWeight: isSelected ? '800' : '600',
-                    color: isSelected ? c.text : '#475569',
-                  }}>
+                <button key={type} onClick={() => handleDayTypeChange(type)} style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
+                  padding: '12px', marginBottom: '8px',
+                  background: isSelected ? c.bg : 'var(--surface-2)',
+                  border: isSelected ? `2px solid ${c.border}` : '1px solid var(--border)',
+                  borderRadius: '12px', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                }}>
+                  <div style={{ width: '14px', height: '14px', borderRadius: '4px', background: c.bg, border: `2px solid ${c.border}` }} />
+                  <span style={{ fontSize: '14px', fontWeight: isSelected ? '700' : '500', color: isSelected ? c.text : 'var(--muted-fg)' }}>
                     {type}
                   </span>
-                  {isSelected && (
-                    <span style={{ marginLeft: 'auto', color: c.text, fontSize: '16px' }}>✓</span>
-                  )}
+                  {isSelected && <span style={{ marginLeft: 'auto', color: c.text, fontSize: '16px' }}>✓</span>}
                 </button>
               )
             })}

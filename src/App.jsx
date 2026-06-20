@@ -26,12 +26,9 @@ export default function App() {
     setLoading(false)
   }
 
-async function refreshPoints() {
+  async function refreshPoints() {
     try {
       const allTasks = await db.tasks.toArray()
-      // Only count completed tasks that are NOT template records
-      // Template completions have fromTemplateId set
-      // Avoid double counting: if fromTemplateId is set, count it once
       const seenTemplateIds = new Set()
       let pts = 0
       for (const t of allTasks) {
@@ -42,8 +39,7 @@ async function refreshPoints() {
         }
         pts += Number(t.points) || 0
       }
-
-    const reds = await db.redemptions?.toArray?.() || []
+      const reds = await db.redemptions?.toArray?.() || []
       const redPts = reds.reduce((s, r) => s + (Number(r.cost) || 0), 0)
       setTotalPoints(Math.max(0, pts - redPts))
     } catch {}
@@ -58,11 +54,13 @@ async function refreshPoints() {
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: '#f8fafc',
-        fontFamily: 'Nunito, sans-serif', flexDirection: 'column', gap: '12px',
+        justifyContent: 'center', background: 'var(--bg)',
+        fontFamily: 'Inter, sans-serif', flexDirection: 'column', gap: '12px',
       }}>
-        <p style={{ fontSize: '28px', fontWeight: '900', color: '#38bdf8' }}>KitnaHua</p>
-        <p style={{ fontSize: '14px', color: '#94a3b8', fontWeight: '600' }}>Loading...</p>
+        <p style={{ fontSize: '28px', fontWeight: '900', color: 'var(--primary)', letterSpacing: '2px' }}>
+          KitnaHua
+        </p>
+        <p style={{ fontSize: '14px', color: 'var(--muted-fg)', fontWeight: '500' }}>Loading...</p>
       </div>
     )
   }
@@ -71,7 +69,7 @@ async function refreshPoints() {
     <BrowserRouter>
       <div style={{
         maxWidth: '414px', margin: '0 auto', minHeight: '100vh',
-        background: '#f8fafc', position: 'relative', display: 'flex', flexDirection: 'column',
+        background: 'var(--bg)', position: 'relative', display: 'flex', flexDirection: 'column',
       }}>
         <TopBar totalPoints={totalPoints} onExport={exportData} onImport={importData} />
         <div style={{ flex: 1, paddingBottom: '70px' }}>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { BookOpen, TrendingUp, Clock, BarChart2, Brain } from 'lucide-react'
 import { db } from '../db'
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-1.5-flash'
 
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) return null
@@ -322,7 +322,7 @@ Keep it concise, no bullet points, plain text only.`
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
           <Brain size={17} color='#38bdf8' />
           <p style={{ fontSize: '16px', fontWeight: '800', color: '#fff' }}>AI Study Coach</p>
-          {GEMINI_API_KEY && (
+          {!!import.meta.env.VITE_GEMINI_API_KEY && (
             <div style={{ background: '#1e293b', borderRadius: '20px', padding: '3px 8px', marginLeft: 'auto' }}>
               <p style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>✦ Gemini</p>
             </div>
